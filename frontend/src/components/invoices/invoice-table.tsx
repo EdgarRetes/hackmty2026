@@ -29,7 +29,7 @@ export function InvoiceTable({
   })}</tbody></table></div>;
 }
 
-function InvoiceAction({ invoice }: { invoice: InvoiceListItem }) {
+export function InvoiceAction({ invoice }: { invoice: InvoiceListItem }) {
   if (invoice.batchId) return <a href={`/publications/${invoice.batchId}`} className="inline-flex min-w-[116px] justify-center rounded-lg bg-[#f3eaff] px-4 py-2 text-xs font-medium text-[#7c3aed] transition hover:bg-[#ecdcff]">Ver publicación</a>;
   if (invoice.status === "published" && invoice.offersCount > 0) return <a href={`/offers/${encodeURIComponent(invoice.folio)}`} className="inline-flex min-w-[116px] justify-center rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff]">Ver ofertas</a>;
   if (invoice.status === "funded") return <button className="min-w-[116px] rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff]">Ver detalles</button>;
