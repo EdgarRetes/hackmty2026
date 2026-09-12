@@ -14,11 +14,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env()
 
+# Auto-load backend/.env if present, so `manage.py` picks up DATABASE_URL,
+# DB_PASSWORD, etc. without manually exporting them into the shell first.
+# Safe in production too: systemd's EnvironmentFile already sets the same
+# vars directly on the process, so this is a no-op there.
+_env_file = BASE_DIR / ".env"
+if _env_file.exists():
+    environ.Env.read_env(str(_env_file))
+
 INSTALLED_APPS = [
+    # Public-facing responses are still JSON-only (see core.views.health and
+    # REST_FRAMEWORK below) — these are only here to power /admin/, a
+    # separate internal-only interface for managing data during the
+    # hackathon. Never add app-facing templates/views alongside these.
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
-    # No admin/sessions/messages/staticfiles: this backend is API-only,
-    # JSON in and out, no server-rendered templates or session-based UI.
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
     "empresas",
@@ -31,12 +45,34 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
 ]
 
 ROOT_URLCONF = "factorai_config.urls"
 
-# No TEMPLATES setting: API-only backend, never add template rendering here.
+# Only present to render the built-in Django admin's own templates. Never
+# add project-level templates/views here — the API stays JSON-only.
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+
+STATIC_URL = "static/"
 
 WSGI_APPLICATION = "factorai_config.wsgi.application"
 

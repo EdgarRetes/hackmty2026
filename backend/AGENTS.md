@@ -5,10 +5,13 @@ file only covers Django-specific conventions for this `backend/` folder.
 
 ## Conventions
 
-- **API-only, forever.** Never add `django.contrib.admin`, `TEMPLATES`,
-  server-rendered views, or static file serving. Every response is JSON
-  via DRF. If a feature seems to need a template, it belongs in the
-  Next.js frontend instead.
+- **API-only for app-facing responses.** Every endpoint under `/api/` is
+  JSON via DRF — no server-rendered views, no project-level templates.
+  The one exception is `/admin/`, the built-in Django admin, enabled
+  purely as an internal data-management UI (see `INSTALLED_APPS` /
+  `TEMPLATES` in `base.py`). Don't add templates or views beyond what
+  `django.contrib.admin` itself needs — a feature that needs a real page
+  belongs in the Next.js frontend instead.
 - **Settings split.** Never put environment-specific values (secrets,
   hosts, DB config) in `base.py`. Add them to `dev.py` and
   `production.py` separately, read via `django-environ`.

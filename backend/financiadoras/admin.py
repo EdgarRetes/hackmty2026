@@ -1,3 +1,8 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import Lender
+
+
+@admin.register(Lender)
+class LenderAdmin(admin.ModelAdmin):
+    list_display = ("name", "risk_profile", "is_verified")

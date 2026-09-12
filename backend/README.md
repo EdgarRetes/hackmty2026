@@ -94,5 +94,9 @@ See `DEPLOY.md` for the exact commands to run on the Ubuntu VPS
 - `mercado` — bids and auction outcomes
 - `core` — shared utilities, health check endpoint
 
-Each app currently has only a placeholder comment in `models.py` — no
-real models yet.
+`empresas`, `financiadoras`, `facturas`, and `mercado` have real models
+(`Company`/`DebtorClient`/`PaymentHistory`, `Lender`, `Invoice`, `Offer`
+respectively), each registered in that app's `admin.py`. `/admin/` is
+enabled as an internal data-management UI — create a superuser with
+`python manage.py createsuperuser` to use it. No business logic
+(scoring, matching, bidding) is implemented yet.
