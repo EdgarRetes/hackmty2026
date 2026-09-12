@@ -21,6 +21,14 @@ class InvoiceApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data[0]["folio"], f"FAC-2026-{self.invoice.id:04d}")
         self.assertEqual(response.data[0]["amount"], "250000.00")
+        self.assertEqual(response.data[0]["offers_count"], 0)
+
+    def test_list_includes_non_pending_invoices(self):
+        self.invoice.status = Invoice.Status.FUNDED
+        self.invoice.save(update_fields=["status"])
+        response = self.client.get("/api/invoices/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["status"], "funded")
 
     def test_retrieves_invoice_by_supported_references(self):
         references = [str(self.invoice.id), f"INV-{self.invoice.id}", f"FAC-2026-{self.invoice.id:04d}"]
