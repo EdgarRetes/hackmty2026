@@ -1,8 +1,9 @@
 from datetime import date
+from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import Invoice
+from .models import Invoice, InvoiceBatch
 
 
 class CompanySummarySerializer(serializers.Serializer):
@@ -23,6 +24,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     debtor_client = DebtorClientSummarySerializer(read_only=True)
     days_until_due = serializers.SerializerMethodField()
     offers_count = serializers.IntegerField(read_only=True, default=0)
+    batch_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Invoice
@@ -37,6 +39,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "status",
             "days_until_due",
             "offers_count",
+            "batch_id",
         )
 
     def get_folio(self, invoice):
@@ -44,3 +47,17 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     def get_days_until_due(self, invoice):
         return (invoice.due_date - date.today()).days
+
+
+class InvoiceBatchSerializer(serializers.ModelSerializer):
+    company = CompanySummarySerializer(read_only=True)
+    invoices = InvoiceSerializer(many=True, read_only=True)
+    total_amount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InvoiceBatch
+        fields = ("id", "company", "invoices", "total_amount", "created_at")
+
+    def get_total_amount(self, batch):
+        total = sum((invoice.amount for invoice in batch.invoices.all()), Decimal("0.00"))
+        return str(total)

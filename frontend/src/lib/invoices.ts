@@ -13,6 +13,7 @@ interface ApiInvoice {
   status: "pending" | "in_auction" | "funded" | "paid" | "overdue";
   days_until_due: number;
   offers_count: number;
+  batch_id: number | null;
 }
 
 export interface InvoiceListItem {
@@ -26,6 +27,7 @@ export interface InvoiceListItem {
   backendStatus: ApiInvoice["status"];
   status: InvoiceUiStatus;
   offersCount: number;
+  batchId: number | null;
 }
 
 export async function getInvoices(): Promise<InvoiceListItem[]> {
@@ -46,6 +48,7 @@ function normalizeInvoice(invoice: ApiInvoice): InvoiceListItem {
     backendStatus: invoice.status,
     status: mapStatus(invoice.status, invoice.offers_count),
     offersCount: invoice.offers_count,
+    batchId: invoice.batch_id,
   };
 }
 

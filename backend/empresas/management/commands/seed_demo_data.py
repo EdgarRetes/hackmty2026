@@ -8,7 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from empresas.models import Company, DebtorClient, PaymentHistory
-from facturas.models import Invoice
+from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
 from mercado.matching_engine import LENDER_IDENTITIES
 
@@ -200,6 +200,10 @@ class Command(BaseCommand):
         # command gives a fresh, consistent dataset instead of piling up
         # duplicates. Cascades to PaymentHistory and Invoice automatically.
         DebtorClient.objects.filter(company=company).delete()
+        # InvoiceBatch has its own FK straight to Company (not through
+        # DebtorClient), so it doesn't get cascade-deleted above — wipe it
+        # separately or every re-seed leaves behind empty, orphaned batches.
+        InvoiceBatch.objects.filter(company=company).delete()
 
         return [
             DebtorClient.objects.create(company=company, name=name, archetype=archetype)

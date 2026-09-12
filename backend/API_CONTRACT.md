@@ -195,6 +195,58 @@ Unknown offers return `404`. Expired or already accepted offers return
 
 ---
 
+## `GET|POST /api/invoice-batches/`
+
+A "publicación": several of the empresa's own **pending, unbatched**
+invoices published together as one package. A financiadora funding the
+batch pays out all its invoices at once and collects the yield across
+all of them — this is the multi-invoice equivalent of the single-invoice
+flow above.
+
+**`POST`** body: `{"invoice_ids": [87, 97, 96]}` — at least 2 ids,
+all must currently be `status: "pending"`, not already in another
+batch, and belong to the same company. Publishing flips each invoice's
+`status` to `in_auction` and sets its `batch_id`.
+
+**Response** (`201` on POST, `200` on GET — a list of these):
+
+```json
+{
+  "id": 1,
+  "company": { "id": 1, "legal_name": "...", "rfc": "..." },
+  "invoices": [ /* same shape as GET /api/invoices/ items, each now with batch_id: 1 */ ],
+  "total_amount": "626748.29",
+  "created_at": "2026-09-12T16:55:28.794211-06:00"
+}
+```
+
+`400` if fewer than 2 ids, an id doesn't exist/isn't pending/is already
+batched, or the invoices span more than one company.
+
+## `GET /api/invoice-batches/{id}/`
+
+One batch, same shape as a `POST` response above. `404` if unknown.
+
+## `GET /api/invoice-batches/{id}/offers/`
+
+Runs the **exact same** per-invoice pipeline (risk engine → 3 pricing
+agents → matching engine) on every invoice in the batch, then combines
+each lender's quotes across all of them into one package-level offer:
+`net_amount` summed, `rate`/`advance_percentage` amount-weighted-averaged
+across the batch's invoices. Same per-offer shape as
+`/api/invoices/{id}/offers/` plus `batch_id` instead of `invoice_id` —
+**computed on every call, not persisted** (unlike single-invoice offers).
+
+**No accept endpoint yet for batch offers.** Their `id` is synthetic
+(`batch_id * 100 + rank`, same scheme the single-invoice endpoint used
+before it persisted real `Offer` rows) and does **not** correspond to a
+real `Offer` primary key — don't call `POST /api/offers/{id}/accept/`
+with one, since it could collide with an unrelated real `Offer`'s id.
+Accepting a batch offer (funding all its invoices at once) isn't
+implemented yet.
+
+---
+
 ## What changes when this becomes real
 
 - `GET /api/invoices/` will filter by the authenticated company instead
