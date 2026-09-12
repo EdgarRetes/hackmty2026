@@ -16,6 +16,16 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+Copy `.env.local.example` to `.env.local` and set `NEXT_PUBLIC_API_URL` to
+the public base URL of the Django API. Production values are configured in the
+Vercel project environment and are embedded at build time; no credentials
+belong in this public variable.
+
+The backend must include the deployed frontend origin in
+`CORS_ALLOWED_ORIGINS`. The Offers page currently uses local mock data because
+the Django project does not yet expose invoice, offer-list, or offer-acceptance
+API routes.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

@@ -1,12 +1,12 @@
 # API Contract
 
-**Status**: `GET /api/invoices/` and `POST /api/invoices/{id}/offers/` are
-now backed by real data — real seeded `Invoice` rows, a real quantile
+**Status**: `GET /api/invoices/`, `GET /api/invoices/{reference}/`,
+`GET|POST /api/invoices/{id}/offers/`, and `POST /api/offers/{id}/accept/` are
+backed by real data — real seeded `Invoice` rows, a real quantile
 risk model (`core/risk_engine.py`), three real `cvxpy` pricing agents
 (`core/pricing_agents.py`), and a real matching engine
-(`mercado/matching_engine.py`) that ranks their quotes. `POST
-/api/offers/{id}/accept/` is still mocked — no `Offer` is persisted, it
-always succeeds. This document describes the exact shape the frontend
+(`mercado/matching_engine.py`) that ranks their quotes. Generated offers
+and their acceptance state are persisted. This document describes the exact shape the frontend
 builds against; if a field ever needs to change, this file gets updated
 in the same PR.
 
@@ -68,7 +68,16 @@ today. `status` is one of `pending`, `in_auction`, `funded`, `paid`,
 
 ---
 
-## `POST /api/invoices/{id}/offers/`
+## `GET /api/invoices/{reference}/`
+
+Returns one invoice using its numeric database id, `INV-{id}`, or display
+folio `FAC-2026-{id:04d}`. The response has the same shape as one item from
+the invoice list. Unknown references return `404` with
+`{"detail": "Invoice not found."}`.
+
+---
+
+## `GET|POST /api/invoices/{id}/offers/`
 
 Runs the invoice through the real pipeline: `core.risk_engine.predict_risk`
 produces a `{p10, p50, p90}` days-late band from that invoice's
@@ -76,9 +85,12 @@ produces a `{p10, p50, p90}` days-late band from that invoice's
 (`conservative`, `aggressive`, `specialized`) price the invoice against
 that band, and `mercado.matching_engine.rank_offers` sorts the three
 resulting quotes by **net cash to the empresa** (`net_amount`,
-descending — ties broken by the lower rate). Nothing is persisted yet,
-so calling this twice returns the same 3 offers (models are stochastic
-only in training, which is cached per-process, not per-request).
+descending — ties broken by the lower rate). Each quote is persisted or
+updated for its `(invoice, lender)` pair.
+
+`GET` returns already persisted offers without recalculating them. `POST`
+generates or refreshes offers for a pending invoice. Funded invoices always
+return their persisted offers without repricing.
 
 **Request**: no body needed. `{id}` is a real invoice `id` from the list
 above.
@@ -99,7 +111,12 @@ per pricing agent — **already sorted best-for-the-empresa first**.
     "advance_percentage": "85.87",
     "rate": "2.63",
     "net_amount": "128805.00",
-    "expires_at": "2026-09-13T18:04:22.104932+00:00"
+    "financing_cost": "3945.00",
+    "funding_time": "24 horas",
+    "category": "best",
+    "rank": 1,
+    "expires_at": "2026-09-13T18:04:22.104932+00:00",
+    "is_accepted": false
   },
   {
     "id": 102,
@@ -132,10 +149,10 @@ per pricing agent — **already sorted best-for-the-empresa first**.
 
 (Real numbers vary invoice to invoice and after re-seeding — the example
 above is illustrative, not fixed.) `expires_at` is `now + 24h`, computed
-at request time. `id` is `invoice_id * 100 + rank_position` — stable
-within one call, but **not a real primary key**; don't persist it
-client-side as if it were, since it'll be replaced once `Offer` rows are
-actually persisted.
+at request time. `id` is a real persisted `Offer` primary key.
+`financing_cost` is calculated in the backend; `funding_time` belongs to
+the lender profile; and `category` is `best`, `lowest_rate`,
+`highest_advance`, or `fastest`.
 
 **Array order is the ranking** — index 0 is the offer the matching
 engine judges best for the empresa. Don't re-sort by `advance_percentage`
@@ -152,9 +169,8 @@ invoice:
 
 ## `POST /api/offers/{id}/accept/`
 
-**Still mocked.** Simulates accepting one of the offers returned above.
-Always succeeds — there's no real `Offer` store yet, so any numeric
-`{id}` is accepted.
+Accepts a persisted, unexpired offer, records its acceptance timestamp,
+and updates its invoice status to `funded`.
 
 **Request**: no body needed. `{id}` is an offer's `id` from the offers
 response above (e.g. `103`).
@@ -172,12 +188,8 @@ response above (e.g. `103`).
 }
 ```
 
-`invoice_id` is derived from `offer_id` using the same `// 100` scheme
-the offers endpoint used to generate the id — don't depend on that once
-this is backed by real data. `transaction_id` and `accepted_at` are
-freshly generated on every call, so calling this twice with the same
-`offer_id` returns two different `transaction_id`s (there's no
-idempotency yet).
+Unknown offers return `404`. Expired or already accepted offers return
+`409`. A transaction identifier is generated for each successful acceptance.
 
 ---
 
@@ -185,10 +197,8 @@ idempotency yet).
 
 - `GET /api/invoices/` will filter by the authenticated company instead
   of returning every seeded invoice.
-- `POST /api/offers/{id}/accept/` will look up a real `Offer` (offers
-  will need to be persisted by the offers endpoint first), reject
-  unknown/expired/already-accepted ids with real error responses, and
-  update the linked `Invoice.status` to `funded`.
+- Authentication and company-level authorization must be added before
+  customer-specific production access.
 - The specialized pricing agent's "sector" concept isn't backed by a
   real model field yet (see `core/demo_sectors.py`) — a real
   implementation should add it to `DebtorClient` (or a separate model)
