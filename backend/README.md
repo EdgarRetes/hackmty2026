@@ -1,7 +1,8 @@
 # Backend — factorai_config (Django + DRF)
 
 API-only Django backend. No templates, no admin site, no static file
-serving — every response is JSON. Deploys as a Docker container on Vultr.
+serving — every response is JSON. Deploys directly onto a plain Ubuntu
+VPS (no containers) via Gunicorn + systemd + Nginx — see `DEPLOY.md`.
 
 ## Stack
 
@@ -19,11 +20,12 @@ serving — every response is JSON. Deploys as a Docker container on Vultr.
 - `base.py` — shared apps, middleware, everything environment-agnostic
 - `dev.py` — local development. Falls back to SQLite if `DATABASE_URL`
   isn't set, so the project runs with zero external services.
-- `production.py` — Docker/Vultr deployment. Requires `SECRET_KEY`,
+- `production.py` — VPS deployment. Requires `SECRET_KEY`,
   `ALLOWED_HOSTS`, `DATABASE_URL` to be set; no insecure fallbacks.
 
-`manage.py` defaults to `factorai_config.settings.dev`. The Docker image
-sets `DJANGO_SETTINGS_MODULE=factorai_config.settings.production`.
+`manage.py` defaults to `factorai_config.settings.dev`. In production,
+`DJANGO_SETTINGS_MODULE=factorai_config.settings.production` is set via
+the server's `.env` file (see `DEPLOY.md`).
 
 ## ⚠️ Tiger Cloud password gotcha — read this before debugging an auth failure
 
@@ -66,19 +68,23 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-With no `DATABASE_URL` set, this uses local SQLite automatically.
+With no `DATABASE_URL` set, this uses local SQLite automatically — no
+local database setup required at all.
+
+If you want to develop against the real schema (e.g. to test
+TimescaleDB-specific behavior), set `DATABASE_URL` (and `DB_PASSWORD` —
+see the gotcha above) in your `.env` to point directly at the Tiger
+Cloud Postgres instance instead of SQLite. There is no local
+containerized database — dev is either SQLite or the real Tiger Cloud
+service.
 
 Verify: `curl http://localhost:8000/api/health/` should return
 `{"status": "ok", "service": "factorai-backend"}`.
 
-## Running against local TimescaleDB via Docker
+## Deploying
 
-```bash
-docker compose up --build
-```
-
-This starts a `timescale/timescaledb` container alongside the Django app
-so local dev matches the production database (Postgres + TimescaleDB).
+See `DEPLOY.md` for the exact commands to run on the Ubuntu VPS
+(Gunicorn + systemd + Nginx, no Docker).
 
 ## Apps
 

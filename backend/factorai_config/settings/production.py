@@ -1,5 +1,5 @@
 """
-Production settings (Vultr, Docker, Gunicorn).
+Production settings (Ubuntu VPS on Vultr, Gunicorn + systemd + Nginx).
 
 Everything sensitive comes from the environment — no dev-only fallbacks
 here. Database is Postgres + TimescaleDB on Tiger Cloud.

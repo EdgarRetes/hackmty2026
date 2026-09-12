@@ -14,7 +14,7 @@ matching logic exist yet.
 ## Monorepo layout
 
 ```
-/backend    Django + DRF, API-only, deploys to Vultr via Docker
+/backend    Django + DRF, API-only, deploys to a plain Ubuntu VPS on Vultr (no Docker — see backend/DEPLOY.md)
 /frontend   Next.js (App Router), deploys to Vercel
 ```
 
@@ -55,7 +55,7 @@ content) for Next.js-specific notes.
 | Var | Notes |
 |---|---|
 | `DATABASE_URL` | Postgres connection string. **Tiger Cloud's connection string omits the password** — see below. |
-| `DB_PASSWORD` | The real database password. When set, overrides/fills the password missing from `DATABASE_URL`. Required for Tiger Cloud; leave unset for local SQLite/Docker Postgres with an inline password. |
+| `DB_PASSWORD` | The real database password. When set, overrides/fills the password missing from `DATABASE_URL`. Required for Tiger Cloud; leave unset for local SQLite. |
 | `SECRET_KEY` | Django secret key |
 | `DEBUG` | `True`/`False` |
 | `ALLOWED_HOSTS` | Comma-separated |
@@ -117,5 +117,6 @@ see that JSON rendered, backend and frontend are correctly wired.
 - No real business logic: no bidding algorithm, no invoice scoring, no
   matching engine, no Gemini integration. Models are placeholder
   comments only.
-- No production deployment configuration beyond a working Dockerfile
-  (Vultr) — no CI/CD, no Vercel project settings, no secrets management.
+- No production deployment configuration beyond the systemd/Nginx setup
+  in `backend/deploy/` and `backend/DEPLOY.md` — no CI/CD, no Vercel
+  project settings, no secrets management.

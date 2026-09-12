@@ -19,7 +19,7 @@ Mexican SMEs. This is scaffolding only — no business logic yet. See
 | Framework | Django 6.1 + DRF 3.18 | Next.js 16 (App Router) |
 | Language | Python | TypeScript |
 | Database | PostgreSQL + TimescaleDB (Tiger Cloud) | — |
-| Deploy | Docker container on **Vultr** | **Vercel** |
+| Deploy | Plain Ubuntu VPS on **Vultr** (Gunicorn + systemd + Nginx, no Docker) | **Vercel** |
 
 ## Quickstart
 
