@@ -23,7 +23,7 @@ not `parseFloat` if you can help it (floating point rounding on money).
 
 ## `GET /api/invoices/`
 
-Returns the real list of pending invoices from the database (no
+Returns the real list of invoices from the database (no
 auth/company filtering yet — every seeded invoice belongs to the same
 demo company).
 
@@ -50,7 +50,8 @@ demo company).
     "issue_date": "2026-08-15",
     "due_date": "2026-10-15",
     "status": "pending",
-    "days_until_due": 33
+    "days_until_due": 33,
+    "offers_count": 3
   }
 ]
 ```
@@ -64,7 +65,8 @@ display-only label derived from the id (`FAC-2026-{id:04d}`) — the
 used internally by the specialized pricing agent, which isn't exposed
 over the API. `days_until_due` is computed live from `due_date` vs.
 today. `status` is one of `pending`, `in_auction`, `funded`, `paid`,
-`overdue` (`Invoice.Status`), though only `pending` shows up here today.
+`overdue` (`Invoice.Status`). `offers_count` is the real count of persisted
+offers related to the invoice.
 
 ---
 

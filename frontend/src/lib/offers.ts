@@ -60,7 +60,7 @@ export async function getOffersPageData(invoiceId: string): Promise<OffersPageDa
 
 export async function getDefaultInvoiceReference(): Promise<string | null> {
   const invoices = await apiRequest<ApiInvoice[]>("/api/invoices/");
-  return invoices[0]?.folio ?? null;
+  return invoices.find((invoice) => invoice.status === "pending" || invoice.status === "in_auction")?.folio ?? null;
 }
 
 export async function acceptOffer(offerId: string): Promise<AcceptOfferResponse> {

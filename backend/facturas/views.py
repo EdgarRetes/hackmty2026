@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Count, Q
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -8,7 +8,9 @@ from .serializers import InvoiceSerializer
 
 
 def _invoice_queryset():
-    return Invoice.objects.select_related("company", "debtor_client")
+    return Invoice.objects.select_related("company", "debtor_client").annotate(
+        offers_count=Count("offers")
+    )
 
 
 def _invoice_from_reference(reference):
@@ -29,10 +31,10 @@ def _invoice_from_reference(reference):
 @api_view(["GET"])
 def invoice_list(request):
     """
-    Real pending invoices from the database (seeded via
+    Real invoices from the database (seeded via
     `manage.py seed_demo_data`). See API_CONTRACT.md.
     """
-    invoices = _invoice_queryset().filter(status=Invoice.Status.PENDING).order_by("due_date")
+    invoices = _invoice_queryset().order_by("-issue_date", "-id")
     return Response(InvoiceSerializer(invoices, many=True).data)
 
 

@@ -22,6 +22,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     company = CompanySummarySerializer(read_only=True)
     debtor_client = DebtorClientSummarySerializer(read_only=True)
     days_until_due = serializers.SerializerMethodField()
+    offers_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Invoice
@@ -35,6 +36,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "due_date",
             "status",
             "days_until_due",
+            "offers_count",
         )
 
     def get_folio(self, invoice):
