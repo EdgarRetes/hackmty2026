@@ -15,4 +15,4 @@ class DebtorClientAdmin(admin.ModelAdmin):
 
 @admin.register(PaymentHistory)
 class PaymentHistoryAdmin(admin.ModelAdmin):
-    list_display = ("debtor_client", "amount", "days_late")
+    list_display = ("debtor_client", "amount", "days_late", "paid_at")

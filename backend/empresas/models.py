@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.db import models
 
 
@@ -33,6 +35,13 @@ class PaymentHistory(models.Model):
     )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     days_late = models.IntegerField(default=0)
+    # When this payment actually happened. Needed for recency-based risk
+    # features (e.g. "days since this client's last payment") — without a
+    # date, PaymentHistory records have no order in time.
+    paid_at = models.DateField(default=date.today)
+
+    class Meta:
+        ordering = ["paid_at"]
 
     def __str__(self):
         return f"{self.debtor_client} — {self.amount} ({self.days_late}d late)"
