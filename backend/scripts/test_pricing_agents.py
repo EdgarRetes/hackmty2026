@@ -32,25 +32,13 @@ django.setup()
 from empresas.models import DebtorClient  # noqa: E402
 from facturas.models import Invoice  # noqa: E402
 
+from core.demo_sectors import SPECIALIZED_SECTORS, sector_for_client  # noqa: E402
 from core.pricing_agents import (  # noqa: E402
     aggressive_agent,
     conservative_agent,
     specialized_agent,
 )
 from core.risk_engine import predict_risk  # noqa: E402
-
-# Industry sector per demo client — independent of DebtorClient.archetype
-# (which encodes payment *behavior*, not industry). Only used here to
-# exercise the specialized agent's sector logic.
-CLIENT_SECTORS = {
-    "Comercializadora del Norte": "retail_chain",
-    "Ferretería La Unión": "construction_supplies",
-    "Grupo Constructor Peninsular": "construction",
-    "Materiales Industriales MTY": "manufacturing",
-    "Farmacias San Rafael": "pharma_retail",
-    "Autotransportes del Golfo": "logistics",
-}
-SPECIALIZED_SECTORS = {"retail_chain", "logistics"}
 
 
 def main():
@@ -86,7 +74,7 @@ def main():
         if len(scored) > 1:
             cases.append(("riskiest", *scored[-1]))
 
-        sector = CLIENT_SECTORS.get(client.name)
+        sector = sector_for_client(client)
 
         print(header)
         print("-" * len(header))
