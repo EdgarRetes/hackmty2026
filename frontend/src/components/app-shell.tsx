@@ -5,7 +5,7 @@ import { Icon, type IconName } from "./icons";
 
 const primary: { label: string; icon: IconName; href: string }[] = [
   { label: "Home", icon: "home", href: "/" }, { label: "Facturas", icon: "invoice", href: "/invoices" },
-  { label: "Ofertas", icon: "grid", href: "/publications" }, { label: "Financiamientos", icon: "cube", href: "#" },
+  { label: "Ofertas", icon: "grid", href: "/publications" }, { label: "Financiamientos", icon: "cube", href: "/financing" },
   { label: "Transacciones", icon: "transfer", href: "#" },
 ];
 const secondary: { label: string; icon: IconName; href: string }[] = [
