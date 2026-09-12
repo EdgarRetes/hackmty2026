@@ -9,6 +9,10 @@ class Company(models.Model):
     rfc = models.CharField(max_length=13, unique=True)
     legal_name = models.CharField(max_length=255)
     is_verified = models.BooleanField(default=False)
+    # Nessie sandbox identity (see NESSIE_EXPLORATION.md) — populated by
+    # `seed_demo_data --with-nessie`. Blank until then.
+    nessie_customer_id = models.CharField(max_length=64, blank=True, default="")
+    nessie_account_id = models.CharField(max_length=64, blank=True, default="")
 
     def __str__(self):
         return self.legal_name
@@ -39,6 +43,10 @@ class PaymentHistory(models.Model):
     # features (e.g. "days since this client's last payment") — without a
     # date, PaymentHistory records have no order in time.
     paid_at = models.DateField(default=date.today)
+    # id of the Nessie deposit created to represent this payment's money
+    # movement (see NESSIE_EXPLORATION.md). Blank unless seeded with
+    # `--with-nessie`.
+    nessie_deposit_id = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         ordering = ["paid_at"]

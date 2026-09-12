@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice
+from financiadoras.models import Lender
+from mercado.matching_engine import LENDER_IDENTITIES
 
 DEMO_COMPANY = {
     "rfc": "GIA850101AB1",
@@ -27,6 +29,14 @@ DEBTOR_CLIENTS = [
 ]
 
 INVOICE_TERMS_DAYS = (30, 45, 60)
+
+NESSIE_ADDRESS = {
+    "street_number": "1",
+    "street_name": "Av. Constitución",
+    "city": "Monterrey",
+    "state": "NL",
+    "zip": "64000",
+}
 
 
 def _days_late_for(archetype):
@@ -76,28 +86,66 @@ def _paid_at_sequence(n, today, most_recent_offset=20):
 
 class Command(BaseCommand):
     help = (
-        "Seeds one demo Company with DebtorClients (one per archetype), "
-        "PaymentHistory following an archetype-appropriate distribution, "
-        "and pending Invoices. Safe to re-run — clears its own demo data "
-        "first instead of piling up duplicates."
+        "Seeds one demo Company, three demo Lenders, DebtorClients (one "
+        "per archetype), PaymentHistory following an archetype-appropriate "
+        "distribution, and pending Invoices. Safe to re-run — clears its "
+        "own demo data first instead of piling up duplicates. Pass "
+        "--with-nessie to also provision real Nessie sandbox customers/"
+        "accounts for the Company and Lenders, and back each PaymentHistory "
+        "record with a real Nessie deposit (see NESSIE_EXPLORATION.md)."
     )
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--with-nessie",
+            action="store_true",
+            help="Also provision real Nessie sandbox customers/accounts/deposits.",
+        )
+
     def handle(self, *args, **options):
+        with_nessie = options["with_nessie"]
+        # Imported lazily so `core.nessie_client` (and its `requests`
+        # dependency) is only ever touched when actually needed.
+        nessie = None
+        if with_nessie:
+            from core import nessie_client as nessie
+
         with transaction.atomic():
             company = self._seed_company()
+            lenders = self._seed_lenders()
+
+            if with_nessie:
+                self._provision_nessie_identity(nessie, company)
+                for lender in lenders:
+                    self._provision_nessie_identity(nessie, lender)
+
+            stale_deposit_ids = list(
+                PaymentHistory.objects.filter(debtor_client__company=company)
+                .exclude(nessie_deposit_id="")
+                .values_list("nessie_deposit_id", flat=True)
+            )
+
             clients = self._seed_debtor_clients(company)
-            stats = self._seed_payment_history(clients)
+
+            if with_nessie and stale_deposit_ids:
+                for deposit_id in stale_deposit_ids:
+                    nessie.delete_deposit(deposit_id)
+
+            stats = self._seed_payment_history(clients, company, nessie if with_nessie else None)
             invoice_count = self._seed_invoices(company, clients)
 
         total_payments = sum(data["count"] for data in stats.values())
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nSeeded 1 company, {len(clients)} debtor clients, "
-                f"{total_payments} payment history records, "
-                f"{invoice_count} pending invoices.\n"
+                f"\nSeeded 1 company, {len(lenders)} lenders, {len(clients)} "
+                f"debtor clients, {total_payments} payment history records, "
+                f"{invoice_count} pending invoices."
+                + (" (with real Nessie records)" if with_nessie else "")
+                + "\n"
             )
         )
-        self._print_summary(stats)
+        self._print_nessie_identities(company, lenders, with_nessie)
+        self._print_summary(stats, with_nessie)
 
     def _seed_company(self):
         company, _ = Company.objects.update_or_create(
@@ -108,6 +156,44 @@ class Command(BaseCommand):
             },
         )
         return company
+
+    def _seed_lenders(self):
+        return [
+            Lender.objects.update_or_create(
+                name=identity["name"],
+                defaults={"risk_profile": identity["risk_profile"], "is_verified": True},
+            )[0]
+            for identity in LENDER_IDENTITIES.values()
+        ]
+
+    def _provision_nessie_identity(self, nessie, entity):
+        """
+        Idempotent: reuses entity.nessie_customer_id/nessie_account_id if
+        already set (from a previous --with-nessie run), so re-seeding
+        doesn't create duplicate customers in the shared Nessie sandbox.
+        """
+        display_name = entity.legal_name if hasattr(entity, "legal_name") else entity.name
+        changed = False
+
+        if not entity.nessie_customer_id:
+            entity.nessie_customer_id = nessie.create_customer(
+                first_name="Factorai",
+                last_name=display_name,
+                address=NESSIE_ADDRESS,
+            )
+            changed = True
+
+        if not entity.nessie_account_id:
+            entity.nessie_account_id = nessie.create_account(
+                customer_id=entity.nessie_customer_id,
+                account_type="Checking",
+                nickname=f"{display_name} (factorai demo)",
+                balance=0,
+            )
+            changed = True
+
+        if changed:
+            entity.save(update_fields=["nessie_customer_id", "nessie_account_id"])
 
     def _seed_debtor_clients(self, company):
         # Wipe this company's existing debtor clients so re-running the
@@ -120,27 +206,42 @@ class Command(BaseCommand):
             for name, archetype in DEBTOR_CLIENTS
         ]
 
-    def _seed_payment_history(self, clients):
+    def _seed_payment_history(self, clients, company, nessie):
         today = timezone.now().date()
         stats = {}
         for client in clients:
             n = _payment_count_for(client.archetype)
             days_late_values = [_days_late_for(client.archetype) for _ in range(n)]
             paid_at_values = _paid_at_sequence(n, today)
+            amounts = [_random_amount() for _ in range(n)]
 
-            PaymentHistory.objects.bulk_create(
+            records = [
                 PaymentHistory(
                     debtor_client=client,
-                    amount=_random_amount(),
+                    amount=amount,
                     days_late=days_late,
                     paid_at=paid_at,
                 )
-                for days_late, paid_at in zip(days_late_values, paid_at_values)
-            )
+                for amount, days_late, paid_at in zip(amounts, days_late_values, paid_at_values)
+            ]
+
+            nessie_linked = 0
+            if nessie is not None and company.nessie_account_id:
+                for record in records:
+                    record.nessie_deposit_id = nessie.create_deposit(
+                        account_id=company.nessie_account_id,
+                        amount=float(record.amount),
+                        transaction_date=record.paid_at.isoformat(),
+                        description=f"Payment from {client.name} ({client.archetype})",
+                    )
+                    nessie_linked += 1
+
+            PaymentHistory.objects.bulk_create(records)
             stats[client.id] = {
                 "client": client,
                 "count": n,
                 "values": days_late_values,
+                "nessie_linked": nessie_linked,
             }
         return stats
 
@@ -166,13 +267,29 @@ class Command(BaseCommand):
         Invoice.objects.bulk_create(invoices)
         return count
 
-    def _print_summary(self, stats):
-        header = (
-            f"{'Client':<32}{'Archetype':<12}{'#':>4}"
-            f"{'Avg days late':>16}{'Std dev':>12}"
-        )
+    def _print_nessie_identities(self, company, lenders, with_nessie):
+        if not with_nessie:
+            self.stdout.write("Nessie: skipped (pass --with-nessie to provision real records)\n")
+            return
+
+        header = f"{'Entity':<40}{'Nessie customer':<39}{'Nessie account':<39}"
         self.stdout.write(header)
         self.stdout.write("-" * len(header))
+        self.stdout.write(
+            f"{company.legal_name:<40}{company.nessie_customer_id:<39}{company.nessie_account_id:<39}"
+        )
+        for lender in lenders:
+            self.stdout.write(
+                f"{lender.name:<40}{lender.nessie_customer_id:<39}{lender.nessie_account_id:<39}"
+            )
+        self.stdout.write("")
+
+    def _print_summary(self, stats, with_nessie):
+        columns = f"{'Client':<32}{'Archetype':<12}{'#':>4}{'Avg days late':>16}{'Std dev':>12}"
+        if with_nessie:
+            columns += f"{'Nessie deposits':>18}"
+        self.stdout.write(columns)
+        self.stdout.write("-" * len(columns))
 
         for data in stats.values():
             client = data["client"]
@@ -187,7 +304,11 @@ class Command(BaseCommand):
                 avg_str = f"{statistics.mean(values):.1f}"
                 std_str = f"{statistics.stdev(values):.1f}"
 
-            self.stdout.write(
+            row = (
                 f"{client.name:<32}{client.archetype:<12}{n:>4}"
                 f"{avg_str:>16}{std_str:>12}"
             )
+            if with_nessie:
+                linked_str = f"{data['nessie_linked']}/{n}"
+                row += f"{linked_str:>18}"
+            self.stdout.write(row)
