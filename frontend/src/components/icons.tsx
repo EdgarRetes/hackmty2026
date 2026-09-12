@@ -3,7 +3,8 @@ import type { SVGProps } from "react";
 export type IconName =
   | "home" | "invoice" | "grid" | "cube" | "transfer" | "settings"
   | "help" | "search" | "bell" | "chevron" | "calendar" | "check"
-  | "compare" | "star" | "coins" | "bolt" | "clock" | "bars" | "arrow";
+  | "compare" | "star" | "coins" | "bolt" | "clock" | "bars" | "arrow"
+  | "chevronLeft" | "chevronRight";
 
 const paths: Record<IconName, React.ReactNode> = {
   home: <><path d="m3 11 9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></>,
@@ -21,6 +22,7 @@ const paths: Record<IconName, React.ReactNode> = {
   coins: <><ellipse cx="9" cy="6" rx="5" ry="2.5"/><path d="M4 6v4c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5V6M4 10v4c0 1.4 2.2 2.5 5 2.5M16 13c2.8 0 5 1.1 5 2.5S18.8 18 16 18s-5-1.1-5-2.5 2.2-2.5 5-2.5Z"/><path d="M11 15.5v4c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5v-4"/></>,
   bolt: <path d="M13 2 5 14h7l-1 8 8-12h-7z"/>, clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   bars: <><path d="M5 20v-6h3v6zM11 20V9h3v11zM17 20V4h3v16z"/></>, arrow: <path d="M5 12h14m-4-4 4 4-4 4"/>,
+  chevronLeft: <path d="m15 18-6-6 6-6"/>, chevronRight: <path d="m9 18 6-6-6-6"/>,
 };
 
 export function Icon({ name, size = 22, className = "", ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {
