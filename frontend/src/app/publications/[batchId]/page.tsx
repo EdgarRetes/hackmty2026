@@ -7,5 +7,5 @@ export default async function PublicationPage({ params }: { params: Promise<{ ba
   const { batchId } = await params;
   const data = await getPublicationPageData(decodeURIComponent(batchId));
   if (!data) notFound();
-  return <AppShell activeSection="Facturas"><PublicationPageContent data={data}/></AppShell>;
+  return <AppShell activeSection="Ofertas"><PublicationPageContent data={data}/></AppShell>;
 }

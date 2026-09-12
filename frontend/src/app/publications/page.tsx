@@ -4,5 +4,5 @@ import { getPublications } from "@/lib/publications";
 
 export default async function PublicationsPage() {
   const publications = await getPublications();
-  return <AppShell activeSection="Facturas"><PublicationsListContent publications={publications}/></AppShell>;
+  return <AppShell activeSection="Ofertas"><PublicationsListContent publications={publications}/></AppShell>;
 }
