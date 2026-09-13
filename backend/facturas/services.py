@@ -8,7 +8,7 @@ from .models import Invoice, InvoiceBatch
 
 def publish_invoices(invoice_ids, company=None):
     """
-    Bundle one or more of a company's own pending, unbatched invoices
+    Bundle one or more of a company's own available, unbatched invoices
     into a new InvoiceBatch ("publicación"). Returns (batch, None) on
     success or (None, error_message) if the input is invalid — never
     raises for a bad `invoice_ids` list, so callers can surface the
@@ -22,7 +22,7 @@ def publish_invoices(invoice_ids, company=None):
         return None, "invoice_ids must be a list of at least 1 invoice id."
 
     queryset = Invoice.objects.filter(
-        pk__in=invoice_ids, status=Invoice.Status.PENDING, batch__isnull=True
+        pk__in=invoice_ids, status=Invoice.Status.AVAILABLE, batch__isnull=True
     )
     if company is not None:
         queryset = queryset.filter(company=company)
@@ -30,7 +30,7 @@ def publish_invoices(invoice_ids, company=None):
 
     if len(invoices) != len(set(invoice_ids)):
         return None, (
-            "One or more invoice_ids don't exist, aren't pending, "
+            "One or more invoice_ids don't exist, aren't available, "
             "or are already part of another batch."
         )
 

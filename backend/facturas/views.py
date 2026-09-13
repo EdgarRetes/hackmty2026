@@ -53,7 +53,7 @@ def invoice_list(request):
 def invoice_assistant(request):
     """
     Chat turn with the Gemini-powered assistant that recommends which
-    pending invoices to bundle into a publication. Body: {"message": str,
+    available invoices to bundle into a publication. Body: {"message": str,
     "history": [{"role": "user"|"model", "text": str}, ...]}. See
     facturas/assistant.py and API_CONTRACT.md.
     """
@@ -116,7 +116,7 @@ def invoice_risk_assessment(request, invoice_id):
 @api_view(["GET", "POST"])
 def invoice_batch_list(request):
     """
-    POST publishes one or more of the empresa's own pending invoices
+    POST publishes one or more of the empresa's own available invoices
     together as one "publicación" (a package a financiadora can browse
     and fund as a whole — a single invoice is just a publication of
     size 1). GET lists every publication published so far.

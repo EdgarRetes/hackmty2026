@@ -157,6 +157,15 @@ class Command(BaseCommand):
             stats = self._seed_payment_history(clients, company, nessie if with_nessie else None)
             invoices = self._seed_invoices(company, clients)
             assessments = {invoice.pk: assess_invoice(invoice) for invoice in invoices}
+            available_ids = [
+                invoice.pk
+                for invoice in invoices
+                if assessments[invoice.pk].decision == "APPROVE"
+            ]
+            Invoice.objects.filter(pk__in=available_ids).update(status=Invoice.Status.AVAILABLE)
+            for invoice in invoices:
+                if invoice.pk in available_ids:
+                    invoice.status = Invoice.Status.AVAILABLE
             financed = self._seed_financings(invoices, assessments)
             financed_ids = {invoice.pk for invoice in financed}
             publishable = [
@@ -164,16 +173,17 @@ class Command(BaseCommand):
                 for invoice in invoices
                 if invoice.pk not in financed_ids
                 and assessments[invoice.pk].decision == "APPROVE"
+                and invoice.demo_scenario != "approved"
             ]
             published_batches = self._seed_publications(company, publishable)
 
-        pending_count = len(invoices) - len(financed)
+        available_count = Invoice.objects.filter(status=Invoice.Status.AVAILABLE).count()
         total_payments = sum(data["count"] for data in stats.values())
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nSeeded 1 company, {len(lenders)} lenders, 2 role profiles, "
                 f"{len(clients)} debtor clients, {total_payments} payment "
-                f"history records, {pending_count} pending invoices "
+                f"history records, {available_count} available invoices "
                 f"({published_batches} publicaciones), "
                 f"{len(financed)} already-financed invoices."
                 + (" (with real Nessie records)" if with_nessie else "")
@@ -453,6 +463,7 @@ class Command(BaseCommand):
             invoice
             for invoice in invoices
             if assessments[invoice.pk].decision == "APPROVE"
+            and invoice.demo_scenario != "approved"
         ]
         sample_size = min(len(candidates), random.randint(12, 18))
         if sample_size < 3:

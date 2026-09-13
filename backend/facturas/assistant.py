@@ -1,5 +1,5 @@
 """
-Gemini-powered assistant that helps a Company decide which of its pending
+Gemini-powered assistant that helps a Company decide which of its available
 invoices to bundle into one publicación. It has tool access to the same
 risk engine + pricing agents + matching engine every other endpoint uses —
 it never invents numbers, it calls real functions against the real DB.
@@ -52,10 +52,12 @@ def _key():
     return key
 
 
-def _pending_invoices(company):
+def _available_invoices(company):
     return (
         Invoice.objects.filter(
-            company=company, status=Invoice.Status.PENDING, batch__isnull=True
+            company=company,
+            status=Invoice.Status.AVAILABLE,
+            batch__isnull=True,
         )
         .select_related("debtor_client", "company")
         .order_by("due_date")
@@ -104,7 +106,7 @@ def _build_tools(company, published):
         """
         today = timezone.now().date()
         results = []
-        for invoice in _pending_invoices(company):
+        for invoice in _available_invoices(company):
             assessment = _latest_assessment(invoice)
             summary = opportunity_summary(invoice)
             quotes = rank_offers(invoice, assessment)

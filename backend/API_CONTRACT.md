@@ -81,7 +81,7 @@ display-only label derived from the id (`FAC-2026-{id:04d}`) — the
 `new`), not an industry — don't confuse it with the industry "sector"
 used internally by the specialized pricing agent, which isn't exposed
 over the API. `days_until_due` is computed live from `due_date` vs.
-today. `status` is one of `pending`, `in_auction`, `funded`, `paid`,
+today. `status` is one of `pending`, `available`, `in_auction`, `funded`, `paid`,
 `overdue` (`Invoice.Status`). `offers_count` is the real count of persisted
 offers related to the invoice.
 
@@ -219,14 +219,14 @@ Unknown offers return `404`. Expired or already accepted offers return
 
 ## `GET|POST /api/invoice-batches/`
 
-A "publicación": several of the empresa's own **pending, unbatched**
+A "publicación": several of the empresa's own **available, unbatched**
 invoices published together as one package. A financiadora funding the
 batch pays out all its invoices at once and collects the yield across
 all of them — this is the multi-invoice equivalent of the single-invoice
 flow above.
 
-**`POST`** body: `{"invoice_ids": [87, 97, 96]}` — at least 2 ids,
-all must currently be `status: "pending"`, not already in another
+**`POST`** body: `{"invoice_ids": [87, 97, 96]}` — at least 1 id,
+all must currently be `status: "available"`, not already in another
 batch, and belong to the same company. Publishing flips each invoice's
 `status` to `in_auction` and sets its `batch_id`.
 
@@ -242,7 +242,7 @@ batch, and belong to the same company. Publishing flips each invoice's
 }
 ```
 
-`400` if fewer than 2 ids, an id doesn't exist/isn't pending/is already
+`400` if fewer than 1 id, an id doesn't exist/isn't available/is already
 batched, or the invoices span more than one company.
 
 ## `GET /api/invoice-batches/{id}/`

@@ -31,6 +31,32 @@ class InvoiceApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data[0]["status"], "funded")
 
+    def test_list_exposes_available_status(self):
+        self.invoice.status = Invoice.Status.AVAILABLE
+        self.invoice.save(update_fields=["status"])
+
+        response = self.client.get("/api/invoices/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["status"], "available")
+
+    def test_only_available_invoice_can_be_published(self):
+        rejected = self.client.post(
+            "/api/invoice-batches/", {"invoice_ids": [self.invoice.id]}, format="json"
+        )
+        self.assertEqual(rejected.status_code, 400)
+
+        self.invoice.status = Invoice.Status.AVAILABLE
+        self.invoice.save(update_fields=["status"])
+        published = self.client.post(
+            "/api/invoice-batches/", {"invoice_ids": [self.invoice.id]}, format="json"
+        )
+
+        self.assertEqual(published.status_code, 201)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.IN_AUCTION)
+        self.assertIsNotNone(self.invoice.batch_id)
+
     def test_retrieves_invoice_by_supported_references(self):
         references = [str(self.invoice.id), f"INV-{self.invoice.id}", f"FAC-2026-{self.invoice.id:04d}"]
         for reference in references:

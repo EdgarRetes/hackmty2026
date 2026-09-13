@@ -2,6 +2,7 @@ import type { InvoiceUiStatus } from "@/lib/invoices";
 
 const statuses: Record<InvoiceUiStatus, { label: string; classes: string; dot: string }> = {
   not_applicable: { label: "No aplica", classes: "bg-slate-100 text-slate-500", dot: "bg-slate-400" },
+  available: { label: "Disponible", classes: "bg-[#e6f3ff] text-[#0875d1]", dot: "bg-[#0875d1]" },
   published: { label: "Publicada", classes: "bg-[#f3eaff] text-[#7c3aed]", dot: "bg-[#8b5cf6]" },
   funded: { label: "Financiada", classes: "bg-[#dcfce7] text-[#16a34a]", dot: "bg-[#16a34a]" },
 };
