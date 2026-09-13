@@ -26,7 +26,7 @@ factoraje` y una descripción breve orientada al resultado.
 
 ### Configurador de liquidez
 
-Un panel navy compacto será el punto de entrada principal. Contendrá:
+Un panel blanco compacto, con borde gris sutil, será el punto de entrada principal. Contendrá:
 
 - Campo `¿Cuánto efectivo necesitas?`, con prefijo monetario y ayuda contextual.
 - Selector segmentado obligatorio de 30, 60 o 90 días.
@@ -70,7 +70,7 @@ se deshabilita cuando el paquete está vacío o durante una publicación.
 
 ## Lenguaje visual
 
-La pantalla reutiliza el sistema existente: navy `#0b1f44`, acento lime,
+La pantalla reutiliza el sistema existente: superficies blancas y grises, navy `#0b1f44` para texto, acento lime,
 fondos blancos o neutros muy claros, tipografía sans, radios moderados, bordes
 slate y sombras sutiles. Los iconos provienen del set existente. No se añaden
 gradientes decorativos, glassmorphism, tipografías nuevas ni colores ajenos al

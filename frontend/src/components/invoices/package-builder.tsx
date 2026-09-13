@@ -203,12 +203,12 @@ function LiquidityConfigurator({
   onCalculate: () => void;
 }) {
   return (
-    <section className="mt-6 overflow-hidden rounded-2xl bg-navy text-white shadow-[0_16px_36px_rgba(11,31,68,.16)]">
+    <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white text-navy shadow-[0_10px_28px_rgba(15,23,42,.06)]">
       <div className="grid gap-6 px-5 py-6 sm:px-7 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,.7fr)_auto] lg:items-end lg:px-8 lg:py-7">
         <label className="block">
-          <span className="text-sm font-semibold text-white">¿Cuánto efectivo necesitas?</span>
-          <span className="mt-1 block text-xs leading-5 text-[#b8c7e1]">Usaremos esta meta para optimizar tu combinación.</span>
-          <span className="mt-3 flex h-14 items-center rounded-xl bg-white px-4 text-navy shadow-[0_4px_14px_rgba(0,0,0,.14)] focus-within:ring-2 focus-within:ring-lime">
+          <span className="text-sm font-semibold text-navy">¿Cuánto efectivo necesitas?</span>
+          <span className="mt-1 block text-xs leading-5 text-[#6b7fa5]">Usaremos esta meta para optimizar tu combinación.</span>
+          <span className="mt-3 flex h-14 items-center rounded-xl border border-slate-200 bg-[#f7f9fc] px-4 text-navy transition focus-within:border-[#9bb329] focus-within:bg-white focus-within:ring-2 focus-within:ring-lime/40">
             <span className="mr-2 text-lg font-semibold text-[#52688f]">$</span>
             <input
               value={target}
@@ -224,9 +224,9 @@ function LiquidityConfigurator({
         </label>
 
         <fieldset>
-          <legend className="text-sm font-semibold text-white">Plazo de factoraje</legend>
-          <p className="mt-1 text-xs leading-5 text-[#b8c7e1]">El costo estimado cambia con el plazo.</p>
-          <div className="mt-3 grid h-14 grid-cols-3 rounded-xl bg-[#17315f] p-1" role="radiogroup">
+          <legend className="text-sm font-semibold text-navy">Plazo de factoraje</legend>
+          <p className="mt-1 text-xs leading-5 text-[#6b7fa5]">El costo estimado cambia con el plazo.</p>
+          <div className="mt-3 grid h-14 grid-cols-3 rounded-xl border border-slate-200 bg-[#f1f4f8] p-1" role="radiogroup">
             {TERMS.map((days) => (
               <button
                 key={days}
@@ -234,7 +234,7 @@ function LiquidityConfigurator({
                 role="radio"
                 aria-checked={term === days}
                 onClick={() => onTermChange(days)}
-                className={`rounded-lg text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-lime ${term === days ? "bg-white text-navy shadow-sm" : "text-[#cfdaed] hover:bg-white/8 hover:text-white"}`}
+                className={`rounded-lg text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-lime ${term === days ? "border border-slate-200 bg-white text-navy shadow-sm" : "text-[#52688f] hover:bg-white/70 hover:text-navy"}`}
               >
                 {days} días
               </button>
@@ -246,7 +246,7 @@ function LiquidityConfigurator({
           type="button"
           disabled={targetAmount <= 0 || isCalculating}
           onClick={onCalculate}
-          className="inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-lime px-6 text-sm font-bold text-navy outline-none transition hover:bg-[#e0f88a] focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-navy disabled:cursor-not-allowed disabled:bg-[#70809c] disabled:text-[#d9e0eb]"
+          className="inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-lime px-6 text-sm font-bold text-navy outline-none transition hover:bg-[#e0f88a] focus-visible:ring-2 focus-visible:ring-[#9bb329] focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
         >
           <Icon name={isCalculating ? "clock" : "bolt"} size={18} />
           {isCalculating ? "Calculando..." : "Calcular combinación"}
@@ -389,32 +389,32 @@ function InvoiceValue({ label, value, emphasized = false, warning = false }: { l
 
 function PublishSummary({ term, targetAmount, summary, isPublishing, onPublish }: { term: number; targetAmount: number; summary: ReturnType<typeof summarizePackage>; isPublishing: boolean; onPublish: () => void }) {
   return (
-    <aside className="rounded-2xl bg-navy px-5 py-5 text-white shadow-[0_14px_32px_rgba(11,31,68,.14)] xl:sticky xl:top-5">
-      <div className="flex items-center justify-between"><h2 className="text-base font-bold">Resumen del paquete</h2><span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-[#dce5f3]">{term} días</span></div>
+    <aside className="rounded-2xl border border-slate-200 bg-white px-5 py-5 text-navy shadow-[0_10px_28px_rgba(15,23,42,.06)] xl:sticky xl:top-5">
+      <div className="flex items-center justify-between"><h2 className="text-base font-bold">Resumen del paquete</h2><span className="rounded-full bg-[#f1f4f8] px-2.5 py-1 text-xs font-semibold text-[#52688f]">{term} días</span></div>
       <dl className="mt-5 space-y-3 text-sm">
         <SummaryLine label="Efectivo estimado" value={money.format(summary.estimatedCash)} strong />
         <SummaryLine label="Pérdida esperada" value={money.format(summary.expectedLoss)} />
         <SummaryLine label="Valor de facturas" value={money.format(summary.nominalAmount)} />
         <SummaryLine label="Facturas" value={String(summary.invoiceCount)} />
       </dl>
-      <div className="my-5 h-px bg-white/12" />
-      <div className="flex items-center justify-between text-xs"><span className="text-[#b8c7e1]">Cobertura de la meta</span><strong>{targetAmount > 0 ? `${Math.round(summary.progress)}%` : "—"}</strong></div>
+      <div className="my-5 h-px bg-slate-100" />
+      <div className="flex items-center justify-between text-xs"><span className="text-[#52688f]">Cobertura de la meta</span><strong>{targetAmount > 0 ? `${Math.round(summary.progress)}%` : "—"}</strong></div>
       <button
         type="button"
         disabled={!summary.invoiceCount || isPublishing}
         onClick={onPublish}
-        className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-lime text-sm font-bold text-navy outline-none transition hover:bg-[#e0f88a] focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:bg-[#52688f] disabled:text-[#c5d0e1]"
+        className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-lime text-sm font-bold text-navy outline-none transition hover:bg-[#e0f88a] focus-visible:ring-2 focus-visible:ring-[#9bb329] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
       >
         <Icon name={isPublishing ? "clock" : "arrow"} size={18} />
         {isPublishing ? "Publicando..." : "Publicar paquete"}
       </button>
-      <p className="mt-3 text-center text-[11px] leading-4 text-[#aebdd5]">Publicar no garantiza el monto final. Recibirás ofertas de las financiadoras.</p>
+      <p className="mt-3 text-center text-[11px] leading-4 text-[#6b7fa5]">Publicar no garantiza el monto final. Recibirás ofertas de las financiadoras.</p>
     </aside>
   );
 }
 
 function SummaryLine({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <div className={`flex items-end justify-between gap-3 ${strong ? "pb-3" : ""}`}><dt className="text-[#b8c7e1]">{label}</dt><dd className={strong ? "text-xl font-bold tracking-[-.02em]" : "font-semibold"}>{value}</dd></div>;
+  return <div className={`flex items-end justify-between gap-3 ${strong ? "pb-3" : ""}`}><dt className="text-[#52688f]">{label}</dt><dd className={strong ? "text-xl font-bold tracking-[-.02em] text-navy" : "font-semibold text-navy"}>{value}</dd></div>;
 }
 
 function LoadingRows() {
