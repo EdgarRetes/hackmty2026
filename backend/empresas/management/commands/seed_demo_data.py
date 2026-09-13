@@ -1,7 +1,7 @@
 import random
 import statistics
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -12,7 +12,17 @@ from core.models import UserProfile
 from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
-from mercado.matching_engine import LENDER_IDENTITIES
+from mercado.matching_engine import LENDER_IDENTITIES, rank_offers
+from mercado.models import Offer
+
+# Mirrors mercado/views.py::FUNDING_TIMES — duplicated here (rather than
+# imported) so seeding doesn't reach into that view module's internals;
+# keep the two in sync if the funding-time copy ever changes.
+FUNDING_TIMES = {
+    "conservative": "48 horas",
+    "aggressive": "Hoy mismo",
+    "specialized": "24 horas",
+}
 
 DEMO_PROFILES = {
     "empresa": {"username": "lucia.martinez", "first_name": "Lucía", "last_name": "Martínez"},
@@ -140,14 +150,17 @@ class Command(BaseCommand):
                     nessie.delete_deposit(deposit_id)
 
             stats = self._seed_payment_history(clients, company, nessie if with_nessie else None)
-            invoice_count = self._seed_invoices(company, clients)
+            invoices = self._seed_invoices(company, clients)
+            financed = self._seed_financings(invoices)
 
+        pending_count = len(invoices) - len(financed)
         total_payments = sum(data["count"] for data in stats.values())
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nSeeded 1 company, {len(lenders)} lenders, 2 role profiles, "
                 f"{len(clients)} debtor clients, {total_payments} payment "
-                f"history records, {invoice_count} pending invoices."
+                f"history records, {pending_count} pending invoices, "
+                f"{len(financed)} already-financed invoices."
                 + (" (with real Nessie records)" if with_nessie else "")
                 + "\n"
             )
@@ -321,8 +334,86 @@ class Command(BaseCommand):
                     status=Invoice.Status.PENDING,
                 )
             )
-        Invoice.objects.bulk_create(invoices)
-        return count
+        # Postgres's bulk_create returns objects with real pks populated,
+        # which _seed_financings below needs to run the pricing pipeline
+        # against specific invoices.
+        return Invoice.objects.bulk_create(invoices)
+
+    def _seed_financings(self, invoices):
+        """
+        Marks a few freshly-seeded invoices as already financed: runs the
+        real pricing pipeline, persists all 3 offers exactly like
+        POST /api/invoices/{id}/offers/ does, then accepts the best one.
+        Without this, the Financiadora role's "Financiamientos" page
+        (frontend/src/lib/financing.ts) — which reads real accepted
+        Offers, not mock data — has nothing to show until a real user
+        clicks through the accept flow at least once.
+        """
+        if len(invoices) < 3:
+            return []
+
+        today = timezone.now()
+        financed = []
+
+        for index, invoice in enumerate(random.sample(invoices, 3)):
+            ranked = rank_offers(invoice)
+            rates = [Decimal(str(quote["rate"])) for quote in ranked]
+            advances = [Decimal(str(quote["advance_percentage"])) for quote in ranked]
+            amount = Decimal(str(invoice.amount))
+            best_offer = None
+
+            for rank, quote in enumerate(ranked, start=1):
+                lender_data = quote["lender"]
+                lender, _ = Lender.objects.update_or_create(
+                    pk=lender_data["id"],
+                    defaults={
+                        "name": lender_data["name"],
+                        "risk_profile": lender_data["risk_profile"],
+                        "is_verified": True,
+                    },
+                )
+                rate = Decimal(str(quote["rate"]))
+                advance = Decimal(str(quote["advance_percentage"]))
+                if rank == 1:
+                    category = "best"
+                elif rate == min(rates):
+                    category = "lowest_rate"
+                elif advance == max(advances):
+                    category = "highest_advance"
+                else:
+                    category = "fastest"
+                financing_cost = (amount * rate / Decimal("100")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+
+                offer, _ = Offer.objects.update_or_create(
+                    invoice=invoice,
+                    lender=lender,
+                    defaults={
+                        "advance_percentage": advance,
+                        "rate": rate,
+                        "net_amount": Decimal(str(quote["net_amount"])),
+                        "financing_cost": financing_cost,
+                        "funding_time": FUNDING_TIMES[lender.risk_profile],
+                        "category": category,
+                        "rank": rank,
+                        "expires_at": today + timedelta(hours=24),
+                    },
+                )
+                if rank == 1:
+                    best_offer = offer
+
+            best_offer.is_accepted = True
+            best_offer.accepted_at = today - timedelta(days=random.randint(3, 30))
+            best_offer.save(update_fields=["is_accepted", "accepted_at"])
+
+            # First one "paid" (fully settled), the rest "funded" (still
+            # active) — exercises both status buckets on the Financing page.
+            invoice.status = Invoice.Status.PAID if index == 0 else Invoice.Status.FUNDED
+            invoice.save(update_fields=["status"])
+            financed.append(invoice)
+
+        return financed
 
     def _print_nessie_identities(self, company, lenders, with_nessie):
         if not with_nessie:

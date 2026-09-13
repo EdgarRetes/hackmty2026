@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getProfiles, type Profile, type Role } from "@/lib/profile";
 import { Icon, type IconName } from "./icons";
 
@@ -11,6 +12,10 @@ const primary: { label: string; icon: IconName; href: string; roles: Role[] }[] 
   { label: "Transacciones", icon: "transfer", href: "#", roles: ["empresa"] },
   { label: "Financiamientos", icon: "cube", href: "/financing", roles: ["financiadora"] },
 ];
+
+// Where the role switcher sends you when you pick a role — the first
+// route that role's own nav actually has.
+const ROLE_HOME: Record<Role, string> = { empresa: "/", financiadora: "/financing" };
 const secondary: { label: string; icon: IconName; href: string }[] = [
   { label: "Configuración", icon: "settings", href: "#" }, { label: "Ayuda", icon: "help", href: "#" },
 ];
@@ -97,14 +102,21 @@ export function TopBar({ collapsed, role, onChangeRole, profile }: { collapsed: 
 }
 
 export function AppShell({ children, activeSection = "Ofertas" }: { children: React.ReactNode; activeSection?: string }) {
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [role, setRole] = useActiveRole();
   const profiles = useProfiles();
   const activeProfile = profiles.find((profile) => profile.role === role);
 
+  function handleChangeRole(next: Role) {
+    if (next === role) return;
+    setRole(next);
+    router.push(ROLE_HOME[next]);
+  }
+
   return <div className="min-h-screen bg-[#fbfcfe]">
     <AppSidebar activeSection={activeSection} collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} role={role}/>
-    <TopBar collapsed={collapsed} role={role} onChangeRole={setRole} profile={activeProfile}/>
+    <TopBar collapsed={collapsed} role={role} onChangeRole={handleChangeRole} profile={activeProfile}/>
     <main className={`px-5 py-6 transition-[margin-left] duration-[250ms] ease-in-out md:px-7 ${collapsed ? "lg:ml-20" : "lg:ml-[226px]"}`}>{children}</main>
   </div>;
 }
