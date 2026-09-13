@@ -1,7 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ROLE_CONFIG } from "@/lib/session";
 import { Icon, type IconName } from "./icons";
 
 type Experience = "sme" | "financier";
@@ -42,9 +45,20 @@ export function AppSidebar({ activeSection = "Ofertas", collapsed, onToggle, exp
 
 export function TopBar({ collapsed, experience = "sme" }: { collapsed: boolean; experience?: Experience }) {
   const financier = experience === "financier";
+  const role = financier ? "financier" : "sme";
+  const profile = ROLE_CONFIG[role];
+  const router = useRouter();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  async function logout() {
+    setLoggingOut(true);
+    await fetch("/api/session", { method: "DELETE" });
+    router.replace("/login");
+    router.refresh();
+  }
   return <header className={`sticky top-0 z-10 flex h-[76px] items-center border-b border-slate-200 bg-white/95 px-5 backdrop-blur transition-[margin-left] duration-[250ms] ease-in-out md:px-7 ${collapsed ? "lg:ml-20" : "lg:ml-[226px]"}`}>
     <div className={`flex h-12 w-full items-center gap-3 rounded-xl bg-[#f1f5f9] px-4 text-[#6b7fa5] ${financier ? "max-w-[720px]" : "max-w-[610px]"}`}><Icon name="search"/><span className="text-sm">{financier ? "Buscar empresa, deudor o número de factura..." : "Buscar facturas, clientes..."}</span></div>
-    <div className="ml-auto flex items-center gap-4 pl-5"><button className="relative rounded-full p-2 text-navy transition hover:bg-slate-100" aria-label="Notificaciones"><Icon name="bell"/><span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"/></button><span className="hidden h-7 w-px bg-slate-200 md:block"/><div className="flex h-11 w-11 items-center justify-center rounded-full bg-navy text-sm font-medium text-white">{financier ? "FI" : "LM"}</div><div className="hidden min-w-[155px] md:block"><div className="text-sm font-semibold text-navy">{financier ? "Cuenta financiadora" : "Lucía Martínez"}</div><div className="mt-1 text-xs text-[#52688f]">{financier ? "Perfil no disponible" : "Industrias Monterrey"}</div></div><Icon name="chevron" size={18} className="hidden md:block"/></div>
+    <div className="ml-auto flex items-center gap-4 pl-5"><button className="relative rounded-full p-2 text-navy transition hover:bg-slate-100" aria-label="Notificaciones"><Icon name="bell"/><span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"/></button><span className="hidden h-7 w-px bg-slate-200 md:block"/><div className="relative"><button type="button" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu" className="flex items-center gap-3 rounded-xl p-1 text-left hover:bg-slate-50"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-navy text-sm font-medium text-white">{financier ? "FI" : "LM"}</div><div className="hidden min-w-[155px] md:block"><div className="text-sm font-semibold text-navy">{profile.name}</div><div className="mt-1 text-xs text-[#52688f]">{profile.company}</div></div><Icon name="chevron" size={18} className="hidden md:block"/></button>{profileOpen && <div role="menu" className="absolute right-0 top-[58px] w-60 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-[0_14px_36px_rgba(15,31,68,.14)]"><div className="border-b border-slate-100 px-3 py-2 md:hidden"><strong className="block text-sm text-navy">{profile.name}</strong><span className="text-xs text-[#52688f]">{profile.company}</span></div><Link role="menuitem" href="#" className="block rounded-lg px-3 py-2.5 text-sm text-navy hover:bg-slate-50">Mi cuenta</Link><button role="menuitem" type="button" disabled={loggingOut} onClick={logout} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50">{loggingOut ? "Cerrando sesión..." : "Cerrar sesión"}</button></div>}</div></div>
   </header>;
 }
 
