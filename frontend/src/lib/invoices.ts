@@ -1,6 +1,6 @@
 import { apiRequest } from "./api";
 
-export type InvoiceUiStatus = "not_applicable" | "published" | "funded";
+export type InvoiceUiStatus = "not_applicable" | "available" | "published" | "funded";
 
 interface ApiInvoice {
   id: number;
@@ -10,7 +10,7 @@ interface ApiInvoice {
   amount: string;
   issue_date: string;
   due_date: string;
-  status: "pending" | "in_auction" | "funded" | "paid" | "overdue";
+  status: "pending" | "available" | "in_auction" | "funded" | "paid" | "overdue";
   days_until_due: number;
   offers_count: number;
   batch_id: number | null;
@@ -46,14 +46,15 @@ function normalizeInvoice(invoice: ApiInvoice): InvoiceListItem {
     issueDate: invoice.issue_date,
     formattedIssueDate: new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${invoice.issue_date}T00:00:00Z`)),
     backendStatus: invoice.status,
-    status: mapStatus(invoice.status, invoice.offers_count),
+    status: mapStatus(invoice.status),
     offersCount: invoice.offers_count,
     batchId: invoice.batch_id,
   };
 }
 
-function mapStatus(status: ApiInvoice["status"], offersCount: number): InvoiceUiStatus {
-  if (status === "in_auction" || (status === "pending" && offersCount > 0)) return "published";
+function mapStatus(status: ApiInvoice["status"]): InvoiceUiStatus {
+  if (status === "available") return "available";
+  if (status === "in_auction") return "published";
   // "paid" is a fully-settled financing, same bucket as "funded" here —
   // this UI only distinguishes 3 states. Without this, a paid invoice
   // fell through to "not_applicable" and looked publishable again.

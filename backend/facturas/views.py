@@ -6,10 +6,13 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from core.risk_engine import assess_invoice, evaluate_invoice
+from empresas.models import Company
 
+from . import assistant
 from .models import Invoice, InvoiceBatch
 from .package_optimizer import recommend_package
 from .serializers import InvoiceBatchSerializer, InvoiceSerializer, RiskAssessmentSerializer
+from .services import publish_invoices
 
 
 def _invoice_queryset():
@@ -49,6 +52,37 @@ def invoice_list(request):
     return Response(InvoiceSerializer(invoices, many=True).data)
 
 
+@api_view(["POST"])
+def invoice_assistant(request):
+    """
+    Chat turn with the Gemini-powered assistant that recommends which
+    available invoices to bundle into a publication. Body: {"message": str,
+    "history": [{"role": "user"|"model", "text": str}, ...]}. See
+    facturas/assistant.py and API_CONTRACT.md.
+    """
+    message = (request.data.get("message") or "").strip()
+    if not message:
+        return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    company = Company.objects.order_by("id").first()
+    if company is None:
+        return Response({"detail": "No company configured."}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        result = assistant.chat(company, message, request.data.get("history"))
+    except RuntimeError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception:
+        return Response(
+            {"detail": "El asistente no está disponible en este momento."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response(
+        {"reply": result["reply"], "published_batch_id": result["published_batch_id"]}
+    )
+
+
 @api_view(["GET"])
 def invoice_detail(request, reference):
     invoice = _invoice_from_reference(reference)
@@ -85,7 +119,7 @@ def invoice_risk_assessment(request, invoice_id):
 @api_view(["GET", "POST"])
 def invoice_batch_list(request):
     """
-    POST publishes one or more of the empresa's own pending invoices
+    POST publishes one or more of the empresa's own available invoices
     together as one "publicación" (a package a financiadora can browse
     and fund as a whole — a single invoice is just a publication of
     size 1). GET lists every publication published so far.
@@ -95,41 +129,12 @@ def invoice_batch_list(request):
         batches = _batch_queryset().order_by("-created_at")
         return Response(InvoiceBatchSerializer(batches, many=True).data)
 
-    invoice_ids = request.data.get("invoice_ids") or []
     term_days = request.data.get("term_days", 30)
-    if term_days not in (30, 60, 90):
-        return Response({"detail": "term_days must be 30, 60, or 90."}, status=status.HTTP_400_BAD_REQUEST)
-    if not isinstance(invoice_ids, list) or len(invoice_ids) < 1:
-        return Response(
-            {"detail": "invoice_ids must be a list of at least 1 invoice id."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    invoices = list(
-        Invoice.objects.filter(
-            pk__in=invoice_ids, status=Invoice.Status.PENDING, batch__isnull=True
-        )
+    batch, error = publish_invoices(
+        request.data.get("invoice_ids") or [], term_days=term_days
     )
-    if len(invoices) != len(set(invoice_ids)):
-        return Response(
-            {
-                "detail": "One or more invoice_ids don't exist, aren't pending, "
-                "or are already part of another batch."
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    company_ids = {invoice.company_id for invoice in invoices}
-    if len(company_ids) != 1:
-        return Response(
-            {"detail": "All invoices in a batch must belong to the same company."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    batch = InvoiceBatch.objects.create(company_id=company_ids.pop(), factoring_term_days=term_days)
-    Invoice.objects.filter(pk__in=invoice_ids).update(
-        batch=batch, status=Invoice.Status.IN_AUCTION
-    )
+    if error:
+        return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(
         InvoiceBatchSerializer(_batch_queryset().get(pk=batch.pk)).data,
@@ -154,7 +159,7 @@ def invoice_batch_preview(request):
         except (ValueError, TypeError, ArithmeticError):
             return Response({"detail": "liquidity_target must be positive."}, status=status.HTTP_400_BAD_REQUEST)
     candidates = []
-    for invoice in Invoice.objects.filter(status=Invoice.Status.PENDING, batch__isnull=True).select_related("company", "debtor_client"):
+    for invoice in Invoice.objects.filter(status=Invoice.Status.AVAILABLE, batch__isnull=True).select_related("company", "debtor_client"):
         assessment = evaluate_invoice(invoice, term_days=term_days)
         if assessment["decision"] == "APPROVE":
             candidates.append({"id": invoice.id, "folio": f"FAC-2026-{invoice.id:04d}", "amount": invoice.amount, "net_disbursement": assessment["net_disbursement"], "expected_loss": assessment["expected_loss"]})

@@ -31,6 +31,7 @@ class Invoice(models.Model):
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        AVAILABLE = "available", "Available"
         IN_AUCTION = "in_auction", "In auction"
         FUNDED = "funded", "Funded"
         PAID = "paid", "Paid"

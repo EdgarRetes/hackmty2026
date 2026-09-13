@@ -91,7 +91,7 @@ def _component_scores(invoice, term_days, metrics):
     term_score = _clamp(Decimal(term_days) / Decimal("180") * Decimal("100"))
     dilution_score = _clamp(invoice.company.dilution_rate * Decimal("1000"))
     invoice_score = _clamp((amount_ratio_score + term_score + dilution_score) / Decimal("3"))
-    active = [Invoice.Status.PENDING, Invoice.Status.IN_AUCTION]
+    active = [Invoice.Status.PENDING, Invoice.Status.AVAILABLE, Invoice.Status.IN_AUCTION]
     company_total = Invoice.objects.filter(company=invoice.company, status__in=active).aggregate(total=Sum("outstanding_balance"))["total"] or invoice.outstanding_balance or invoice.amount
     debtor_total = Invoice.objects.filter(company=invoice.company, debtor_client=debtor, status__in=active).aggregate(total=Sum("outstanding_balance"))["total"] or invoice.outstanding_balance or invoice.amount
     concentration = _clamp(Decimal(debtor_total) / Decimal(company_total) * Decimal("100")) if company_total else Decimal("100")

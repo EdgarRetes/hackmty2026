@@ -3,6 +3,7 @@ import { Icon, type IconName } from "../icons";
 const styles = {
   navy: "bg-slate-100 text-navy",
   gray: "bg-slate-100 text-slate-500",
+  blue: "bg-[#e6f3ff] text-[#0875d1]",
   purple: "bg-[#f3eaff] text-[#7c3aed]",
   green: "bg-[#dcfce7] text-[#16a34a]",
 };

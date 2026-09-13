@@ -98,6 +98,15 @@ class OffersApiTests(TestCase):
         self.assertEqual(summary["risk"], "low")
         self.assertGreater(Decimal(summary["estimated_return_rate"]), Decimal("0"))
 
+    def test_available_invoice_is_not_visible_in_marketplace(self):
+        self.invoice.status = Invoice.Status.AVAILABLE
+        self.invoice.save(update_fields=["status"])
+
+        response = self.client.get("/api/marketplace/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["opportunities"], [])
+
     def test_accepting_a_batch_offer_persists_its_risk_assessment(self):
         batch = InvoiceBatch.objects.create(company=self.invoice.company)
         self.invoice.batch = batch
