@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from empresas.models import Company, DebtorClient, PaymentHistory
+from core.risk_engine import evaluate_invoice
+from .package_optimizer import recommend_package
 
 from .models import Invoice
 
@@ -44,6 +46,16 @@ class InvoiceApiTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data, {"detail": "Invoice not found."})
 
+    def test_publishes_batch_with_selected_factoring_term(self):
+        response = self.client.post(
+            "/api/invoice-batches/",
+            {"invoice_ids": [self.invoice.id], "term_days": 60},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["factoring_term_days"], 60)
+
 
 class InvoiceValidationTests(TestCase):
     def setUp(self):
@@ -66,6 +78,21 @@ class InvoiceValidationTests(TestCase):
 
         with self.assertRaises(ValidationError):
             invoice.full_clean()
+
+
+class PackageOptimizerTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(rfc="OPT010101AA1", legal_name="Empresa optimizador")
+        self.debtor = DebtorClient.objects.create(company=self.company, name="Pagador optimizador", archetype="reliable")
+
+    def test_prefers_lower_expected_loss_after_reaching_target(self):
+        result = recommend_package([
+            {"id": 1, "net_disbursement": Decimal("100.00"), "expected_loss": Decimal("8.00"), "amount": Decimal("110.00")},
+            {"id": 2, "net_disbursement": Decimal("105.00"), "expected_loss": Decimal("2.00"), "amount": Decimal("115.00")},
+        ], Decimal("100.00"))
+
+        self.assertTrue(result["target_reached"])
+        self.assertEqual(result["invoice_ids"], [2])
 
     def test_rejects_non_positive_outstanding_balance(self):
         invoice = Invoice(
@@ -144,3 +171,12 @@ class RiskAssessmentApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_evaluation_uses_explicit_factoring_term_for_pricing(self):
+        thirty_days = evaluate_invoice(self.invoice, term_days=30)
+        ninety_days = evaluate_invoice(self.invoice, term_days=90)
+
+        self.assertEqual(thirty_days["term_days"], 30)
+        self.assertEqual(ninety_days["term_days"], 90)
+        self.assertGreater(ninety_days["financing_cost"], thirty_days["financing_cost"])
+        self.assertLess(ninety_days["net_disbursement"], thirty_days["net_disbursement"])

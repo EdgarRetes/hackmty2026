@@ -109,14 +109,14 @@ def _period_factor(annual_rate, days):
     return Decimal(str((1 + float(annual_rate)) ** (days / 360) - 1))
 
 
-def _empty_result(invoice, decision, reasons, reason_codes, as_of, rating="E", score=Decimal("100")):
+def _empty_result(invoice, decision, reasons, reason_codes, as_of, rating="E", score=Decimal("100"), term_days=None):
     return {
         "decision": decision, "rating": rating, "risk_score": Decimal(score),
         "probability_of_default": Decimal("1") if decision == "REJECT" else Decimal("0"),
         "loss_given_default": Decimal("1") if decision == "REJECT" else Decimal("0"),
         "exposure_at_default": Decimal("0"), "expected_default_loss": Decimal("0"),
         "expected_dilution_loss": Decimal("0"), "expected_loss": Decimal("0"),
-        "confidence": "low", "term_days": max(0, (invoice.due_date - as_of).days),
+        "confidence": "low", "term_days": term_days if term_days is not None else max(0, (invoice.due_date - as_of).days),
         "reference_rate": REFERENCE_RATE, "reference_rate_as_of": REFERENCE_RATE_AS_OF,
         "reference_rate_source": REFERENCE_RATE_SOURCE, "recommended_annual_rate": Decimal("0"),
         "recommended_monthly_rate": Decimal("0"), "recommended_advance_percentage": Decimal("0"),
@@ -126,12 +126,13 @@ def _empty_result(invoice, decision, reasons, reason_codes, as_of, rating="E", s
     }
 
 
-def evaluate_invoice(invoice, as_of=None):
+def evaluate_invoice(invoice, as_of=None, term_days=None):
     """Return a reproducible underwriting result without persisting it."""
     as_of = as_of or timezone.localdate()
+    effective_term_days = term_days or max(1, (invoice.due_date - as_of).days)
     failures = _eligibility_failures(invoice, as_of)
     if failures:
-        return _empty_result(invoice, RiskAssessment.Decision.REJECT, [message for _, message in failures], [code for code, _ in failures], as_of)
+        return _empty_result(invoice, RiskAssessment.Decision.REJECT, [message for _, message in failures], [code for code, _ in failures], as_of, term_days=effective_term_days)
     metrics = _payment_metrics(invoice)
     missing_financials = any(value is None for value in (
         invoice.debtor_client.bureau_score, invoice.debtor_client.current_ratio,
@@ -145,13 +146,12 @@ def evaluate_invoice(invoice, as_of=None):
         if missing_financials:
             codes.append("INCOMPLETE_DEBTOR_FINANCIALS")
             reasons.append("Faltan indicadores financieros o de crédito del obligado al pago.")
-        return _empty_result(invoice, RiskAssessment.Decision.REVIEW, reasons, codes, as_of, rating="N", score=Decimal("50"))
-    term_days = max(1, (invoice.due_date - as_of).days)
-    components = _component_scores(invoice, term_days, metrics)
+        return _empty_result(invoice, RiskAssessment.Decision.REVIEW, reasons, codes, as_of, rating="N", score=Decimal("50"), term_days=effective_term_days)
+    components = _component_scores(invoice, effective_term_days, metrics)
     score = _clamp(components["payment"] * Decimal("0.40") + components["debtor"] * Decimal("0.25") + components["invoice"] * Decimal("0.20") + components["concentration"] * Decimal("0.15")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     rating, pd, advance, lgd = _band_for_score(score)
     if rating == "E":
-        result = _empty_result(invoice, RiskAssessment.Decision.REJECT, ["La pérdida y morosidad estimadas exceden la política automática."], ["CREDIT_RISK_TOO_HIGH"], as_of, rating=rating, score=score)
+        result = _empty_result(invoice, RiskAssessment.Decision.REJECT, ["La pérdida y morosidad estimadas exceden la política automática."], ["CREDIT_RISK_TOO_HIGH"], as_of, rating=rating, score=score, term_days=effective_term_days)
         result.update({"probability_of_default": pd, "loss_given_default": lgd, "components": components})
         return result
     balance = invoice.outstanding_balance or invoice.amount
@@ -160,11 +160,11 @@ def evaluate_invoice(invoice, as_of=None):
     dilution_loss = _money(invoice.company.dilution_rate * ead)
     expected_loss = default_loss + dilution_loss
     loss_rate = expected_loss / ead if ead else Decimal("0")
-    annualized_loss = min(loss_rate * Decimal("360") / Decimal(term_days), MAX_ANNUALIZED_LOSS_SPREAD)
+    annualized_loss = min(loss_rate * Decimal("360") / Decimal(effective_term_days), MAX_ANNUALIZED_LOSS_SPREAD)
     annual_rate = _rate(REFERENCE_RATE + OPERATING_SPREAD + CAPITAL_MARGIN + annualized_loss)
     monthly_rate = _rate(Decimal(str((1 + float(annual_rate)) ** (1 / 12) - 1)))
-    financing_cost = _money(ead * _period_factor(annual_rate, term_days))
-    funding_cost = _money(ead * _period_factor(REFERENCE_RATE, term_days))
+    financing_cost = _money(ead * _period_factor(annual_rate, effective_term_days))
+    funding_cost = _money(ead * _period_factor(REFERENCE_RATE, effective_term_days))
     net_disbursement = _money(ead - financing_cost)
     investor_profit = _money(financing_cost - expected_loss - funding_cost)
     reasons = [
@@ -178,7 +178,7 @@ def evaluate_invoice(invoice, as_of=None):
         "probability_of_default": pd, "loss_given_default": lgd, "exposure_at_default": ead,
         "expected_default_loss": default_loss, "expected_dilution_loss": dilution_loss,
         "expected_loss": expected_loss, "confidence": "high" if metrics["count"] >= 6 else "medium",
-        "term_days": term_days, "reference_rate": REFERENCE_RATE,
+        "term_days": effective_term_days, "reference_rate": REFERENCE_RATE,
         "reference_rate_as_of": REFERENCE_RATE_AS_OF, "reference_rate_source": REFERENCE_RATE_SOURCE,
         "recommended_annual_rate": annual_rate, "recommended_monthly_rate": monthly_rate,
         "recommended_advance_percentage": advance * Decimal("100"), "financing_cost": financing_cost,
