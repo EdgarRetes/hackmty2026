@@ -25,6 +25,11 @@ FUNDING_TIMES = {
     "specialized": "24 horas",
 }
 
+# These invoices are deliberately held back from financing and publication so
+# the PyME demo always has a meaningful set of publishable opportunities.
+AVAILABLE_DEMO_SCENARIO = "available_demo"
+AVAILABLE_DEMO_COUNT = 20
+
 DEMO_PROFILES = {
     "empresa": {"username": "lucia.martinez", "first_name": "Lucía", "last_name": "Martínez"},
     "financiadora": {"username": "carlos.mendoza", "first_name": "Carlos", "last_name": "Mendoza"},
@@ -173,7 +178,7 @@ class Command(BaseCommand):
                 for invoice in invoices
                 if invoice.pk not in financed_ids
                 and assessments[invoice.pk].decision == "APPROVE"
-                and invoice.demo_scenario != "approved"
+                and invoice.demo_scenario not in {"approved", AVAILABLE_DEMO_SCENARIO}
             ]
             published_batches = self._seed_publications(company, publishable)
 
@@ -393,6 +398,17 @@ class Command(BaseCommand):
             ("eligibility_rejected", "MRE010101AA3", Decimal("180000.00"), 45, "cancelado", False),
             ("manual_review", "LNE010101AA4", Decimal("90000.00"), 30, "vigente", False),
         ]
+        scenarios.extend(
+            (
+                AVAILABLE_DEMO_SCENARIO,
+                "CDN010101AA1",
+                Decimal("100000.00") + Decimal(index * 5000),
+                30 if index % 2 else 45,
+                "vigente",
+                False,
+            )
+            for index in range(1, AVAILABLE_DEMO_COUNT + 1)
+        )
         invoices = []
         for index, (scenario, debtor_rfc, amount, term, sat_status, assigned) in enumerate(scenarios, start=1):
             debtor = client_by_rfc[debtor_rfc]
@@ -463,7 +479,7 @@ class Command(BaseCommand):
             invoice
             for invoice in invoices
             if assessments[invoice.pk].decision == "APPROVE"
-            and invoice.demo_scenario != "approved"
+            and invoice.demo_scenario not in {"approved", AVAILABLE_DEMO_SCENARIO}
         ]
         sample_size = min(len(candidates), random.randint(12, 18))
         if sample_size < 3:

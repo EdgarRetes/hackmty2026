@@ -4,6 +4,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from facturas.models import Invoice
+from empresas.management.commands.seed_demo_data import AVAILABLE_DEMO_COUNT
 from financiadoras.models import Lender
 from mercado.models import Offer
 
@@ -34,16 +35,29 @@ class DemoSeedTests(TestCase):
                 "risk_rejected": "REJECT",
                 "eligibility_rejected": "REJECT",
                 "manual_review": "REVIEW",
+                "available_demo": "APPROVE",
             },
         )
         approved = Invoice.objects.get(demo_scenario="approved")
         self.assertEqual(approved.risk_assessments.first().term_days, 45)
+        self.assertGreaterEqual(
+            Invoice.objects.filter(
+                demo_scenario="available_demo",
+                status=Invoice.Status.AVAILABLE,
+                batch__isnull=True,
+            ).count(),
+            AVAILABLE_DEMO_COUNT,
+        )
 
     def test_seed_populates_marketplace_and_portfolio_with_assessed_invoices(self):
         call_command("seed_demo_data", stdout=StringIO())
 
         self.assertGreaterEqual(Invoice.objects.count(), 45)
         self.assertTrue(Invoice.objects.filter(status=Invoice.Status.IN_AUCTION).exists())
+        self.assertGreaterEqual(
+            Invoice.objects.filter(status=Invoice.Status.AVAILABLE).count(),
+            AVAILABLE_DEMO_COUNT,
+        )
         self.assertTrue(
             Invoice.objects.filter(
                 status__in=[Invoice.Status.FUNDED, Invoice.Status.PAID]
