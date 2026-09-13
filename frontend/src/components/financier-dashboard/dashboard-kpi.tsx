@@ -3,6 +3,7 @@ import { Icon, type IconName } from "../icons";
 const tones = {
   blue: "bg-[#eaf1ff] text-[#155eef]",
   green: "bg-[#e2f8e8] text-[#0aa44f]",
+  orange: "bg-[#fff1dc] text-[#f59e0b]",
   violet: "bg-[#f0eaff] text-[#5136df]",
   teal: "bg-[#dcf8f1] text-[#0bad79]",
 };

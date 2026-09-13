@@ -16,8 +16,7 @@ const smePrimary: NavItem[] = [
 ];
 const financierPrimary: NavItem[] = [
   { label: "Inicio", icon: "home", href: "/financier" }, { label: "Marketplace", icon: "search", href: "/marketplace" },
-  { label: "Ofertas", icon: "grid", href: "#" }, { label: "Portafolio", icon: "briefcase", href: "/financier#portfolio" },
-  { label: "Operaciones", icon: "transfer", href: "#" },
+  { label: "Ofertas", icon: "grid", href: "/financier/offers" }, { label: "Portafolio", icon: "briefcase", href: "/portfolio" },
 ];
 const secondary: NavItem[] = [
   { label: "Configuración", icon: "settings", href: "#" }, { label: "Ayuda", icon: "help", href: "#" },
@@ -39,7 +38,6 @@ export function AppSidebar({ activeSection = "Ofertas", collapsed, onToggle, exp
     <button type="button" onClick={onToggle} aria-label={collapsed ? "Expandir barra lateral" : "Contraer barra lateral"} title={collapsed ? "Expandir" : "Contraer"} className="absolute -right-3 top-[82px] flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-[#52688f] shadow-sm transition hover:bg-slate-50 hover:text-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"><Icon name={collapsed ? "chevronRight" : "chevronLeft"} size={16}/></button>
     <div className="mt-14"><NavList items={primary} activeSection={activeSection} collapsed={collapsed}/></div>
     <div className="mt-10 border-t border-slate-200 pt-7"><NavList items={secondary} activeSection={activeSection} collapsed={collapsed}/></div>
-    <div aria-hidden="true" className={`relative mt-auto overflow-hidden bg-gradient-to-br from-[#f6ffdc] via-[#effbcf] to-[#d8f3c8] transition-[height,border-radius,opacity,transform] duration-[250ms] ease-in-out ${collapsed ? "h-16 scale-90 rounded-2xl opacity-70" : "h-[150px] scale-100 rounded-[28px] opacity-100"}`}><span className="absolute -left-10 -top-12 h-32 w-24 rotate-45 rounded-full bg-sky-200/55"/><span className="absolute left-14 -top-7 h-28 w-20 rotate-[28deg] rounded-full bg-orange-200/55"/><span className="absolute -bottom-12 -left-2 h-28 w-32 rounded-full bg-[#d6f36b]/45"/><span className="absolute -bottom-10 right-[-18px] h-32 w-28 rounded-full bg-emerald-300/35"/></div>
   </aside>;
 }
 

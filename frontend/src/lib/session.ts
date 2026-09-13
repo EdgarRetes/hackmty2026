@@ -8,7 +8,7 @@ export const ROLE_CONFIG: Record<UserRole, { label: string; home: string; name: 
 };
 
 export const SME_ROUTES = ["/", "/invoices", "/publications", "/financing", "/offers"];
-export const FINANCIER_ROUTES = ["/financier", "/marketplace"];
+export const FINANCIER_ROUTES = ["/financier", "/marketplace", "/portfolio"];
 
 export function isUserRole(value: unknown): value is UserRole {
   return value === "sme" || value === "financier";
