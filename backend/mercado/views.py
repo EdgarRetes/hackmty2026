@@ -9,7 +9,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from facturas.models import Invoice, InvoiceBatch
+from core.risk_engine import assess_invoice
+from facturas.models import Invoice, InvoiceBatch, RiskAssessment
+from facturas.serializers import RiskAssessmentSerializer
 from financiadoras.models import Lender
 
 from .matching_engine import rank_offers
@@ -44,7 +46,18 @@ def create_offers(request, invoice_id):
     if request.method == "GET" or invoice.status == Invoice.Status.FUNDED:
         return Response(OfferSerializer(existing, many=True).data)
 
-    ranked = rank_offers(invoice)
+    assessment = assess_invoice(invoice)
+    if assessment.decision != RiskAssessment.Decision.APPROVE:
+        existing.delete()
+        return Response(
+            {
+                "detail": "Invoice did not pass automatic underwriting.",
+                "assessment": RiskAssessmentSerializer(assessment).data,
+            },
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    ranked = rank_offers(invoice, assessment)
     expires_at = timezone.now() + timedelta(hours=24)
     rates = [Decimal(str(quote["rate"])) for quote in ranked]
     advances = [Decimal(str(quote["advance_percentage"])) for quote in ranked]
@@ -72,14 +85,13 @@ def create_offers(request, invoice_id):
                 category = "highest_advance"
             else:
                 category = "fastest"
-            financing_cost = (amount * rate / Decimal("100")).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
+            financing_cost = Decimal(str(quote["financing_cost"]))
             offer = Offer.objects.filter(invoice=invoice, lender=lender).order_by("pk").first()
             if offer is None:
                 offer = Offer(invoice=invoice, lender=lender)
             offer.advance_percentage = advance
             offer.rate = rate
+            offer.risk_assessment = assessment
             offer.net_amount = Decimal(str(quote["net_amount"]))
             offer.financing_cost = financing_cost
             offer.funding_time = FUNDING_TIMES[lender.risk_profile]
@@ -124,7 +136,17 @@ def batch_offers(request, batch_id):
     buckets = {}
     for invoice in invoices:
         amount = Decimal(str(invoice.amount))
-        for quote in rank_offers(invoice):
+        assessment = assess_invoice(invoice)
+        if assessment.decision != RiskAssessment.Decision.APPROVE:
+            return Response(
+                {
+                    "detail": "One or more invoices did not pass automatic underwriting.",
+                    "invoice_id": invoice.id,
+                    "assessment": RiskAssessmentSerializer(assessment).data,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        for quote in rank_offers(invoice, assessment):
             lender_id = quote["lender"]["id"]
             bucket = buckets.setdefault(
                 lender_id,
@@ -133,12 +155,14 @@ def batch_offers(request, batch_id):
                     "net_amount": Decimal("0"),
                     "weighted_rate": Decimal("0"),
                     "weighted_advance": Decimal("0"),
+                    "financing_cost": Decimal("0"),
                     "total_amount": Decimal("0"),
                 },
             )
             bucket["net_amount"] += Decimal(quote["net_amount"])
             bucket["weighted_rate"] += Decimal(quote["rate"]) * amount
             bucket["weighted_advance"] += Decimal(quote["advance_percentage"]) * amount
+            bucket["financing_cost"] += Decimal(quote["financing_cost"])
             bucket["total_amount"] += amount
 
     aggregated = []
@@ -150,6 +174,7 @@ def batch_offers(request, batch_id):
                 "advance_percentage": _money(bucket["weighted_advance"] / total_amount),
                 "rate": _money(bucket["weighted_rate"] / total_amount),
                 "net_amount": _money(bucket["net_amount"]),
+                "financing_cost": _money(bucket["financing_cost"]),
             }
         )
     aggregated.sort(key=lambda q: (-Decimal(q["net_amount"]), Decimal(q["rate"])))
@@ -179,7 +204,7 @@ def batch_offers(request, batch_id):
                 "advance_percentage": quote["advance_percentage"],
                 "rate": quote["rate"],
                 "net_amount": quote["net_amount"],
-                "financing_cost": _money(batch_amount * rate / Decimal("100")),
+                "financing_cost": quote["financing_cost"],
                 "funding_time": FUNDING_TIMES[quote["lender"]["risk_profile"]],
                 "category": category,
                 "rank": index,

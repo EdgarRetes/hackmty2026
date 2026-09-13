@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import Invoice, InvoiceBatch
+from .models import Invoice, InvoiceBatch, RiskAssessment
 
 
 class CompanySummarySerializer(serializers.Serializer):
@@ -61,3 +61,24 @@ class InvoiceBatchSerializer(serializers.ModelSerializer):
     def get_total_amount(self, batch):
         total = sum((invoice.amount for invoice in batch.invoices.all()), Decimal("0.00"))
         return str(total)
+
+
+class RiskAssessmentSerializer(serializers.ModelSerializer):
+    reason_codes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RiskAssessment
+        fields = (
+            "id", "invoice_id", "decision", "rating", "risk_score",
+            "probability_of_default", "loss_given_default", "exposure_at_default",
+            "expected_default_loss", "expected_dilution_loss", "expected_loss",
+            "confidence", "term_days", "reference_rate", "reference_rate_as_of",
+            "reference_rate_source", "recommended_annual_rate",
+            "recommended_monthly_rate", "recommended_advance_percentage",
+            "financing_cost", "net_disbursement", "expected_investor_profit",
+            "reasons", "reason_codes", "warnings", "input_snapshot",
+            "policy_version", "created_at",
+        )
+
+    def get_reason_codes(self, assessment):
+        return assessment.input_snapshot.get("reason_codes", [])

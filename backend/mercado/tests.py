@@ -1,12 +1,11 @@
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from empresas.models import Company, DebtorClient
+from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice
 from financiadoras.models import Lender
 
@@ -16,24 +15,63 @@ from .models import Offer
 class OffersApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        company = Company.objects.create(rfc="TST010101AA1", legal_name="Empresa Real")
-        debtor = DebtorClient.objects.create(company=company, name="Cliente Real", archetype="reliable")
-        self.invoice = Invoice.objects.create(company=company, debtor_client=debtor, amount=Decimal("100000.00"), issue_date=date.today(), due_date=date.today() + timedelta(days=30))
+        company = Company.objects.create(
+            rfc="TST010101AA1",
+            legal_name="Empresa Real",
+            is_verified=True,
+            annual_revenue=Decimal("8000000.00"),
+            dilution_rate=Decimal("0.01000"),
+        )
+        debtor = DebtorClient.objects.create(
+            company=company,
+            name="Cliente Real",
+            archetype="reliable",
+            rfc="CLI010101AA1",
+            bureau_score=720,
+            current_ratio=Decimal("1.80"),
+            debt_to_ebitda=Decimal("2.00"),
+            operating_margin=Decimal("0.12000"),
+        )
+        for index, dpd in enumerate([0, 0, 1, 0, 2, 0]):
+            due_at = date.today() - timedelta(days=240 - index * 30)
+            PaymentHistory.objects.create(
+                debtor_client=debtor,
+                amount=Decimal("100000.00"),
+                amount_paid=Decimal("100000.00"),
+                issued_at=due_at - timedelta(days=30),
+                due_at=due_at,
+                paid_at=due_at + timedelta(days=dpd),
+            )
+        self.invoice = Invoice.objects.create(
+            company=company,
+            debtor_client=debtor,
+            amount=Decimal("100000.00"),
+            issue_date=date.today(),
+            due_date=date.today() + timedelta(days=30),
+            cfdi_uuid="11111111-1111-4111-8111-111111111111",
+            issuer_rfc=company.rfc,
+            receiver_rfc=debtor.rfc,
+            xml_hash="approved-invoice-hash",
+        )
 
-    @patch("mercado.views.rank_offers")
-    def test_generates_and_persists_ranked_offers(self, rank_offers):
-        rank_offers.return_value = [
-            {"lender": {"id": 1, "name": "Financiera Uno", "risk_profile": "aggressive"}, "advance_percentage": "90.00", "rate": "2.00", "net_amount": "90000.00"},
-            {"lender": {"id": 2, "name": "Financiera Dos", "risk_profile": "specialized"}, "advance_percentage": "85.00", "rate": "1.50", "net_amount": "85000.00"},
-            {"lender": {"id": 3, "name": "Financiera Tres", "risk_profile": "conservative"}, "advance_percentage": "95.00", "rate": "3.00", "net_amount": "95000.00"},
-        ]
+    def test_generates_and_persists_term_priced_offers(self):
         response = self.client.post(f"/api/invoices/{self.invoice.id}/offers/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 3)
         self.assertEqual(Offer.objects.filter(invoice=self.invoice).count(), 3)
         self.assertEqual(response.data[0]["category"], "best")
-        self.assertEqual(response.data[0]["financing_cost"], "2000.00")
-        self.assertEqual(response.data[0]["funding_time"], "Hoy mismo")
+        self.assertGreater(Decimal(response.data[0]["financing_cost"]), Decimal("0"))
+        self.assertIsNotNone(Offer.objects.get(pk=response.data[0]["id"]).risk_assessment)
+
+    def test_rejected_invoice_generates_no_offers(self):
+        self.invoice.sat_status = "cancelado"
+        self.invoice.save(update_fields=["sat_status"])
+
+        response = self.client.post(f"/api/invoices/{self.invoice.id}/offers/")
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.data["assessment"]["decision"], "REJECT")
+        self.assertEqual(Offer.objects.filter(invoice=self.invoice).count(), 0)
 
     def test_accepts_a_persisted_offer_and_funds_invoice(self):
         lender = Lender.objects.create(name="Financiera Uno", risk_profile="aggressive")

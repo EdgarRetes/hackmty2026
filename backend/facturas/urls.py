@@ -4,6 +4,11 @@ from . import views
 
 urlpatterns = [
     path("invoices/", views.invoice_list, name="invoice-list"),
+    path(
+        "invoices/<int:invoice_id>/risk-assessment/",
+        views.invoice_risk_assessment,
+        name="invoice-risk-assessment",
+    ),
     path("invoice-batches/", views.invoice_batch_list, name="invoice-batch-list"),
     path(
         "invoice-batches/<int:batch_id>/",

@@ -1,18 +1,9 @@
-"""
-Matching engine: runs a real pending Invoice through the risk engine and
-all three lender pricing agents, then ranks the resulting quotes by net
-cash to the empresa — the amount actually advanced up front, since
-that's what the SME can use today. Ties broken by the lower rate
-(cheaper cost of capital), highest net cash first.
-"""
+"""Transparent lender variants around an approved risk recommendation."""
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from core.demo_sectors import SPECIALIZED_SECTORS, sector_for_client
-from core.pricing_agents import aggressive_agent, conservative_agent, specialized_agent
-from core.risk_engine import predict_risk
+from facturas.models import RiskAssessment
 
-# One representative lender identity per pricing agent/strategy.
 LENDER_IDENTITIES = {
     "conservative": {"id": 1, "name": "Financiera del Bajío", "risk_profile": "conservative"},
     "aggressive": {"id": 2, "name": "Capital Ágil MX", "risk_profile": "aggressive"},
@@ -21,42 +12,51 @@ LENDER_IDENTITIES = {
 
 
 def _money(value):
-    return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def rank_offers(invoice):
-    """
-    Returns a list of {"lender", "advance_percentage", "rate", "net_amount"}
-    dicts — one per pricing agent — sorted by net_amount (cash advanced to
-    the empresa today) descending, highest first.
-    """
-    risk = predict_risk(invoice)
-    amount = Decimal(str(invoice.amount))
-    sector = sector_for_client(invoice.debtor_client)
+def _monthly_rate(annual_rate):
+    return Decimal(str((1 + float(annual_rate)) ** (1 / 12) - 1))
 
-    agents = {
-        "conservative": conservative_agent(),
-        "aggressive": aggressive_agent(),
-        "specialized": specialized_agent(SPECIALIZED_SECTORS),
+
+def _period_factor(annual_rate, days):
+    return Decimal(str((1 + float(annual_rate)) ** (days / 360) - 1))
+
+
+def rank_offers(invoice, assessment):
+    """Return three term-priced offers; only approved assessments are accepted."""
+    if assessment.decision != RiskAssessment.Decision.APPROVE:
+        return []
+
+    base_advance = Decimal(assessment.recommended_advance_percentage)
+    base_rate = Decimal(assessment.recommended_annual_rate)
+    is_specialized = invoice.debtor_client.scian_sector.startswith(("31", "32", "33"))
+    profiles = {
+        "conservative": (max(Decimal("50"), base_advance - Decimal("10")), max(assessment.reference_rate, base_rate - Decimal("0.005"))),
+        "aggressive": (min(Decimal("95"), base_advance + Decimal("5")), base_rate + Decimal("0.015")),
+        "specialized": (
+            min(Decimal("92"), base_advance + (Decimal("2") if is_specialized else Decimal("-5"))),
+            max(assessment.reference_rate, base_rate + (Decimal("-0.005") if is_specialized else Decimal("0.010"))),
+        ),
     }
-
+    amount = Decimal(invoice.outstanding_balance or invoice.amount)
     quotes = []
-    for agent_key, agent in agents.items():
-        quote = agent.price(risk, float(amount), sector=sector)
-        advance_percentage = Decimal(quote["advance_percentage"])
-        rate = Decimal(quote["rate"])
-        net_amount = amount * advance_percentage / Decimal("100")
+    for key, (advance_percentage, annual_rate) in profiles.items():
+        gross_advance = _money(amount * advance_percentage / Decimal("100"))
+        financing_cost = _money(gross_advance * _period_factor(annual_rate, assessment.term_days))
+        cash_after_cost = _money(gross_advance - financing_cost)
         quotes.append(
             {
-                "lender": LENDER_IDENTITIES[agent_key],
-                "advance_percentage": quote["advance_percentage"],
-                "rate": quote["rate"],
-                "net_amount": _money(net_amount),
-                "_sort_key": (-net_amount, rate),
+                "lender": LENDER_IDENTITIES[key],
+                "advance_percentage": f"{advance_percentage:.2f}",
+                "rate": f"{_monthly_rate(annual_rate) * Decimal('100'):.2f}",
+                "annual_rate": annual_rate,
+                "net_amount": f"{cash_after_cost:.2f}",
+                "financing_cost": f"{financing_cost:.2f}",
+                "_sort_key": (-cash_after_cost, annual_rate),
             }
         )
-
-    quotes.sort(key=lambda q: q["_sort_key"])
+    quotes.sort(key=lambda quote: quote["_sort_key"])
     for quote in quotes:
         del quote["_sort_key"]
     return quotes

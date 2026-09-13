@@ -3,8 +3,10 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from core.risk_engine import assess_invoice
+
 from .models import Invoice, InvoiceBatch
-from .serializers import InvoiceBatchSerializer, InvoiceSerializer
+from .serializers import InvoiceBatchSerializer, InvoiceSerializer, RiskAssessmentSerializer
 
 
 def _invoice_queryset():
@@ -52,6 +54,29 @@ def invoice_detail(request, reference):
             {"detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND
         )
     return Response(InvoiceSerializer(invoice).data)
+
+
+@api_view(["GET", "POST"])
+def invoice_risk_assessment(request, invoice_id):
+    try:
+        invoice = Invoice.objects.select_related("company", "debtor_client").get(pk=invoice_id)
+    except Invoice.DoesNotExist:
+        return Response({"detail": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        assessment = invoice.risk_assessments.first()
+        if assessment is None:
+            return Response(
+                {"detail": "Risk assessment not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(RiskAssessmentSerializer(assessment).data)
+
+    assessment = assess_invoice(invoice)
+    return Response(
+        RiskAssessmentSerializer(assessment).data,
+        status=status.HTTP_201_CREATED,
+    )
 
 
 @api_view(["GET", "POST"])

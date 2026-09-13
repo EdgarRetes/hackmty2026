@@ -17,6 +17,7 @@ class OfferSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "invoice_id",
+            "risk_assessment_id",
             "lender",
             "advance_percentage",
             "rate",
