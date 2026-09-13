@@ -118,7 +118,8 @@ per pricing agent — **already sorted best-for-the-empresa first**.
     "category": "best",
     "rank": 1,
     "expires_at": "2026-09-13T18:04:22.104932+00:00",
-    "is_accepted": false
+    "is_accepted": false,
+    "accepted_at": null
   },
   {
     "id": 102,
@@ -154,7 +155,8 @@ above is illustrative, not fixed.) `expires_at` is `now + 24h`, computed
 at request time. `id` is a real persisted `Offer` primary key.
 `financing_cost` is calculated in the backend; `funding_time` belongs to
 the lender profile; and `category` is `best`, `lowest_rate`,
-`highest_advance`, or `fastest`.
+`highest_advance`, or `fastest`. `accepted_at` is `null` until the offer
+is accepted and then contains the persisted acceptance timestamp.
 
 **Array order is the ranking** — index 0 is the offer the matching
 engine judges best for the empresa. Don't re-sort by `advance_percentage`

@@ -44,6 +44,9 @@ class OffersApiTests(TestCase):
         self.invoice.refresh_from_db()
         self.assertTrue(offer.is_accepted)
         self.assertEqual(self.invoice.status, Invoice.Status.FUNDED)
+        offers_response = self.client.get(f"/api/invoices/{self.invoice.id}/offers/")
+        self.assertEqual(offers_response.status_code, 200)
+        self.assertIsNotNone(offers_response.data[0]["accepted_at"])
 
     def test_unknown_offer_returns_json_404(self):
         response = self.client.post("/api/offers/9999/accept/")

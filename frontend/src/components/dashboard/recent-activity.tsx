@@ -1,0 +1,9 @@
+import type { InvoiceListItem } from "@/lib/invoices";
+import { Icon } from "../icons";
+import { InvoiceAction } from "../invoices/invoice-table";
+import { InvoiceStatusBadge } from "../invoices/invoice-status-badge";
+
+export function RecentActivity({ invoices }: { invoices: InvoiceListItem[] }) {
+  const recent = [...invoices].sort((a, b) => b.issueDate.localeCompare(a.issueDate)).slice(0, 5);
+  return <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-[0_7px_22px_rgba(15,31,68,.025)]"><header className="flex items-center justify-between px-2 py-1"><h2 className="flex items-center gap-2 text-lg font-bold text-navy"><Icon name="clock" size={20}/>Actividad reciente</h2><a href="/invoices" className="flex items-center gap-2 text-xs font-medium text-blue-600">Ver todas las facturas <Icon name="arrow" size={14}/></a></header>{recent.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="bg-[#f3f6fa] text-[10px] text-[#52688f]"><tr><th className="px-3 py-2">Factura</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Monto</th><th className="px-3 py-2">Fecha de emisión</th><th className="px-3 py-2">Estado</th><th className="px-3 py-2">Acciones</th></tr></thead><tbody>{recent.map((invoice) => <tr key={invoice.id} className="border-t border-slate-200 text-[11px] text-navy"><td className="px-3 py-2 font-semibold">#{invoice.folio}</td><td className="px-3 py-2">{invoice.client}</td><td className="px-3 py-2 font-semibold">{invoice.formattedAmount}</td><td className="px-3 py-2">{invoice.formattedIssueDate}</td><td className="px-3 py-2"><InvoiceStatusBadge status={invoice.status}/></td><td className="px-3 py-2"><InvoiceAction invoice={invoice}/></td></tr>)}</tbody></table></div> : <p className="py-16 text-center text-sm text-[#52688f]">No hay actividad reciente.</p>}</section>;
+}

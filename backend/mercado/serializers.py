@@ -27,4 +27,5 @@ class OfferSerializer(serializers.ModelSerializer):
             "rank",
             "expires_at",
             "is_accepted",
+            "accepted_at",
         )
