@@ -2,10 +2,9 @@
 
 **Status**: `GET /api/invoices/`, `GET /api/invoices/{reference}/`,
 `GET|POST /api/invoices/{id}/offers/`, and `POST /api/offers/{id}/accept/` are
-backed by real data — real seeded `Invoice` rows, a real quantile
-risk model (`core/risk_engine.py`), three real `cvxpy` pricing agents
-(`core/pricing_agents.py`), and a real matching engine
-(`mercado/matching_engine.py`) that ranks their quotes. Generated offers
+backed by real data — seeded `Invoice` rows, an explainable eligibility and
+credit scorecard (`core/risk_engine.py`), term-sensitive lender policies, and a
+matching engine (`mercado/matching_engine.py`) that ranks cash after cost. Generated offers
 and their acceptance state are persisted. This document describes the exact shape the frontend
 builds against; if a field ever needs to change, this file gets updated
 in the same PR.
@@ -18,6 +17,24 @@ not `parseFloat` if you can help it (floating point rounding on money).
 
 **Before any of this returns real data, seed the database**:
 `python manage.py seed_demo_data` (see `backend/README.md`).
+
+---
+
+## `GET|POST /api/invoices/{id}/risk-assessment/`
+
+`POST` runs eligibility, the scorecard and term-sensitive pricing, then
+persists an immutable snapshot (`201`). `GET` returns the latest snapshot
+(`404` before the first evaluation).
+
+Core fields include `decision`, `rating`, `risk_score`,
+`probability_of_default`, `loss_given_default`, `exposure_at_default`,
+`expected_loss`, `term_days`, `recommended_monthly_rate`, `financing_cost`,
+`net_disbursement`, `expected_investor_profit`, `reasons`, `warnings`,
+`policy_version` and the dated reference-rate source. PD, LGD and rates are
+decimal fractions; money and decimals serialize as strings.
+
+Only `APPROVE` proceeds automatically. `REVIEW` means insufficient evidence;
+`REJECT` means an eligibility rule or maximum risk band failed.
 
 ---
 
@@ -81,18 +98,21 @@ the invoice list. Unknown references return `404` with
 
 ## `GET|POST /api/invoices/{id}/offers/`
 
-Runs the invoice through the real pipeline: `core.risk_engine.predict_risk`
-produces a `{p10, p50, p90}` days-late band from that invoice's
-`DebtorClient` payment history, all three pricing agents
-(`conservative`, `aggressive`, `specialized`) price the invoice against
-that band, and `mercado.matching_engine.rank_offers` sorts the three
-resulting quotes by **net cash to the empresa** (`net_amount`,
-descending — ties broken by the lower rate). Each quote is persisted or
-updated for its `(invoice, lender)` pair.
+Runs eligibility and credit assessment first. Approved invoices are priced by
+three lender policies around the assessment's recommended advance and annual
+rate; `mercado.matching_engine.rank_offers` sorts by cash delivered after the
+full term cost. Each quote is persisted or updated for its `(invoice, lender)`
+pair.
 
 `GET` returns already persisted offers without recalculating them. `POST`
 generates or refreshes offers for a pending invoice. Funded invoices always
 return their persisted offers without repricing.
+
+A non-approved invoice returns `422` with
+`{"detail": "Invoice did not pass automatic underwriting.", "assessment": {...}}`
+and removes stale offers. Approved offers store `risk_assessment_id`; `rate` is
+the effective monthly percentage, `financing_cost` covers the remaining term,
+and `net_amount` is cash after that cost.
 
 **Request**: no body needed. `{id}` is a real invoice `id` from the list
 above.
@@ -255,10 +275,8 @@ implemented yet.
   of returning every seeded invoice.
 - Authentication and company-level authorization must be added before
   customer-specific production access.
-- The specialized pricing agent's "sector" concept isn't backed by a
-  real model field yet (see `core/demo_sectors.py`) — a real
-  implementation should add it to `DebtorClient` (or a separate model)
-  rather than a hardcoded name lookup.
+- `DebtorClient.scian_sector` is currently a deterministic DENUE-shaped mock;
+  production must populate and refresh it through an approved provider.
 - Field names and types are the target contract and are meant to stay
   stable through that transition — flag it early if a real
   implementation needs to change one.

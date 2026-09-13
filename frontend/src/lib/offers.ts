@@ -1,5 +1,5 @@
-import type { InvoiceDetails, Offer, OfferTone, OffersPageData } from "@/components/offers/data";
-import { apiRequest } from "./api";
+import type { InvoiceDetails, Offer, OfferTone, OffersPageData, RiskAssessment } from "@/components/offers/data";
+import { ApiError, apiRequest } from "./api";
 
 interface ApiInvoice {
   id: number;
@@ -35,6 +35,24 @@ interface AcceptOfferResponse {
   settlement_date: string;
 }
 
+interface ApiRiskAssessment {
+  decision: "APPROVE" | "REVIEW" | "REJECT";
+  rating: string;
+  risk_score: string;
+  probability_of_default: string;
+  loss_given_default: string;
+  expected_loss: string;
+  recommended_monthly_rate: string;
+  term_days: number;
+  expected_investor_profit: string;
+  confidence: string;
+  reasons: string[];
+  warnings: string[];
+  policy_version: string;
+  reference_rate_as_of: string;
+  reference_rate_source: string;
+}
+
 /**
  * Frontend data boundary for the Offers route.
  *
@@ -50,11 +68,41 @@ export async function getOffersPageData(invoiceId: string): Promise<OffersPageDa
     throw error;
   }
 
-  const apiOffers = await apiRequest<ApiOffer[]>(`/api/invoices/${invoice.id}/offers/`, { method: "POST" });
+  let apiOffers: ApiOffer[] = [];
+  let assessment: ApiRiskAssessment;
+  try {
+    apiOffers = await apiRequest<ApiOffer[]>(`/api/invoices/${invoice.id}/offers/`, { method: "POST" });
+    assessment = await apiRequest<ApiRiskAssessment>(`/api/invoices/${invoice.id}/risk-assessment/`);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 422) throw error;
+    const body = JSON.parse(error.body) as { assessment: ApiRiskAssessment };
+    assessment = body.assessment;
+  }
   return {
     invoice: mapInvoice(invoice),
     offers: mapOffers(apiOffers),
+    riskAssessment: mapRiskAssessment(assessment),
     source: "api",
+  };
+}
+
+function mapRiskAssessment(assessment: ApiRiskAssessment): RiskAssessment {
+  return {
+    decision: assessment.decision,
+    rating: assessment.rating,
+    score: formatDecimal(assessment.risk_score),
+    probabilityOfDefault: formatPercentFraction(assessment.probability_of_default),
+    lossGivenDefault: formatPercentFraction(assessment.loss_given_default),
+    expectedLoss: formatMoney(assessment.expected_loss),
+    monthlyRate: formatPercentFraction(assessment.recommended_monthly_rate),
+    termDays: assessment.term_days,
+    expectedProfit: formatMoney(assessment.expected_investor_profit),
+    confidence: assessment.confidence,
+    reasons: assessment.reasons,
+    warnings: assessment.warnings,
+    policyVersion: assessment.policy_version,
+    referenceRateAsOf: formatDate(assessment.reference_rate_as_of),
+    referenceRateSource: assessment.reference_rate_source,
   };
 }
 
@@ -117,6 +165,10 @@ function formatMoney(value: string): string {
 
 function formatDecimal(value: string): string {
   return new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(Number(value));
+}
+
+function formatPercentFraction(value: string): string {
+  return `${new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(Number(value) * 100)}%`;
 }
 
 function formatDate(value: string): string {

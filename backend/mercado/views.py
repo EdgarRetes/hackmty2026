@@ -181,7 +181,6 @@ def batch_offers(request, batch_id):
 
     rates = [Decimal(q["rate"]) for q in aggregated]
     advances = [Decimal(q["advance_percentage"]) for q in aggregated]
-    batch_amount = sum((Decimal(str(inv.amount)) for inv in invoices), Decimal("0"))
     expires_at = timezone.now() + timedelta(hours=24)
 
     offers = []

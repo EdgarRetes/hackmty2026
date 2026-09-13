@@ -52,36 +52,6 @@ NESSIE_ADDRESS = {
 }
 
 
-def _days_late_for(archetype):
-    """Sample one days_late value matching the archetype's intended shape."""
-    if archetype == "reliable":
-        # Low variance, tight around a normal 30-day term.
-        value = random.gauss(30, 4)
-        return max(15, min(50, round(value)))
-    if archetype == "irregular":
-        # High variance: sometimes early, sometimes very late.
-        value = random.gauss(25, 25)
-        return max(-15, min(90, round(value)))
-    if archetype == "delinquent":
-        # Consistently late, floor at 45 so it never looks "reliable".
-        value = random.gauss(58, 9)
-        return max(45, min(110, round(value)))
-    # "new": too little history to have a real pattern, but the couple of
-    # records that exist look unremarkable.
-    value = random.gauss(30, 8)
-    return max(10, min(60, round(value)))
-
-
-def _payment_count_for(archetype):
-    if archetype == "new":
-        return random.choice([0, 1, 2])
-    return random.randint(8, 15)
-
-
-def _random_amount(low=20000, high=350000):
-    return Decimal(str(round(random.uniform(low, high), 2)))
-
-
 def _paid_at_sequence(n, today, most_recent_offset=20):
     """
     n dates in ascending (oldest-first) order, spaced ~25-65 days apart —
@@ -298,7 +268,7 @@ class Command(BaseCommand):
         return clients
 
     def _seed_payment_history(self, clients, company, nessie):
-        today = timezone.now().date()
+        today = timezone.localdate()
         stats = {}
         specs_by_rfc = {spec["rfc"]: spec for spec in DEBTOR_CLIENTS}
         for client in clients:
@@ -348,7 +318,7 @@ class Command(BaseCommand):
         return stats
 
     def _seed_invoices(self, company, clients):
-        today = timezone.now().date()
+        today = timezone.localdate()
         client_by_rfc = {client.rfc: client for client in clients}
         scenarios = [
             ("approved", "CDN010101AA1", Decimal("200000.00"), 45, "vigente", False),

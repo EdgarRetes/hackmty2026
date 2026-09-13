@@ -98,5 +98,102 @@ See `DEPLOY.md` for the exact commands to run on the Ubuntu VPS
 (`Company`/`DebtorClient`/`PaymentHistory`, `Lender`, `Invoice`, `Offer`
 respectively), each registered in that app's `admin.py`. `/admin/` is
 enabled as an internal data-management UI — create a superuser with
-`python manage.py createsuperuser` to use it. No business logic
-(scoring, matching, bidding) is implemented yet.
+`python manage.py createsuperuser` to use it. Invoice underwriting and
+offer matching are implemented as the explainable hackathon MVP below.
+
+## Explainable risk MVP
+
+### Design decision
+
+The production path uses a deterministic scorecard instead of fitting a
+machine-learning model to synthetic data. A scorecard is reproducible, explains
+every decision and gives tests stable expected outcomes. The previous quantile
+experiment no longer controls approval; `predict_risk()` remains only as a
+compatibility view of contractual days past due.
+
+The engine has two gates:
+
+1. **Eligibility** validates the asset: current SAT status, PPD payment method,
+   issuer/receiver RFC match, positive outstanding balance, future due date,
+   delivery evidence, no dispute, no prior assignment and no duplicate UUID or
+   XML hash.
+2. **Credit assessment** scores payment behavior (40%), payer strength (25%),
+   invoice characteristics (20%) and payer concentration (15%). Missing history
+   or financial indicators returns `REVIEW`; excessive risk returns `REJECT`;
+   only `APPROVE` can create offers.
+
+The 0–100 score maps to explicit A–E bands, demo PD, LGD and advance policy in
+`core/risk_policy.py`. Those bands are prototype assumptions, not statistically
+calibrated or CNBV-approved values.
+
+### Loss and price formulas
+
+All rates are decimal fractions inside Python and persisted snapshots:
+
+```text
+EAD = outstanding_balance × advance_percentage
+expected_default_loss = PD × LGD × EAD
+expected_dilution_loss = seller_dilution_rate × EAD
+expected_loss = expected_default_loss + expected_dilution_loss
+
+annual_rate = TIIE_funding + operating_spread + capital_margin
+              + min(annualized_expected_loss_spread, 30%)
+period_cost = EAD × ((1 + annual_rate)^(term_days / 360) - 1)
+monthly_rate = (1 + annual_rate)^(1 / 12) - 1
+net_disbursement = EAD - period_cost
+expected_investor_profit = period_cost - expected_loss - reference_funding_cost
+```
+
+The pricing snapshot uses Banco de México's 6.49% annual TIIE de Fondeo
+observation dated 2026-09-11. Its date and URL are persisted so an old assessment
+never changes when rates move. A production adapter would ingest and approve new
+SIE snapshots before changing policy.
+
+### Official data grounding
+
+Seeded entities are fictional. “Official-shaped” means fields and definitions
+match authoritative sources, not that the fictional values were returned by
+those services:
+
+- [SAT individual CFDI verification](https://wwwmat.sat.gob.mx/aplicacion/80523/verifica-tus-facturas-electronicas): UUID, issuer RFC, receiver RFC and current/cancelled status. Individual validation does not require authentication.
+- [SAT consultation and recovery](https://wwwmatnp.sat.gob.mx/consultas/42968/consulta-y-recuperacion-de-comprobantes-%28nuevo%29): authenticated XML/metadata retrieval and cancellation metadata. This future adapter requires Contraseña/e.firma.
+- [Banco de México SIE](https://www.banxico.org.mx/SieInternet/consultarDirectorioInternetAction.do?accion=consultarCuadro&idCuadro=CF111): dated TIIE reference rate.
+- [INEGI DENUE API](https://www.inegi.org.mx/servicios/api_denue.html): SCIAN activity, establishment size, location and identification metadata.
+- [Basel CRE30](https://www.bis.org/basel_framework/chapter/CRE/30.htm?inforce=20230101&published=20200327&tldate=20230123) and [CRE34](https://www.bis.org/basel_framework/chapter/CRE/34.htm?inforce=20230101&published=20201126&tldate=20191003): PD, LGD, EAD, maturity and separate purchased-receivable dilution risk.
+- [Basel CRE36](https://www.bis.org/basel_framework/chapter/CRE/36.htm?inforce=20230101&published=20221208&tldate=20090325): ageing, documents, concentration, dilution and seller/obligor monitoring.
+- [IFRS 9](https://www.ifrs.org/content/dam/ifrs/publications/pdf-standards/english/2022/issued/part-a/ifrs-9-financial-instruments.pdf?bypass=on): probability-weighted expected loss, time value and reasonable historical/current/forward-looking information.
+
+Mock company and payer rows include `data_source`, `source_reference` and
+`data_as_of`; every `RiskAssessment` stores its input snapshot, policy version
+and reference-rate snapshot. Never label the demo as a live SAT, DENUE or bureau
+check.
+
+### Payment semantics
+
+Payment history stores issue, contractual due and actual paid dates.
+`days_past_due = max(paid_at - due_at, 0)`. The former demo treated a normal
+30-day invoice term as 30 days late, reversing the target's meaning.
+
+### API behavior
+
+```text
+POST /api/invoices/{id}/risk-assessment/  create immutable assessment
+GET  /api/invoices/{id}/risk-assessment/  latest assessment
+POST /api/invoices/{id}/offers/           assess, reject with 422, or price offers
+```
+
+Approved lender variants adjust advance and annual spread around the central
+recommendation, then rank by cash delivered after the full term cost. Persisted
+offers reference the exact assessment used.
+
+### Production evolution
+
+Replace snapshots through provider interfaces rather than changing scorecard
+callers: SAT XML/status, consented bureau, DENUE and bank/cash-flow providers.
+Recalibrate PD only after labeled outcomes, temporal validation, probability
+calibration, drift monitoring and model governance. KYC/KYB and lender
+suitability remain separate onboarding gates.
+
+Selecting invoices against a liquidity target is the next phase: binary
+MILP/CP-SAT constrained by eligibility, net disbursement, payer/sector
+concentration, lender capital and expected loss. `InvoiceBatch` remains manual.

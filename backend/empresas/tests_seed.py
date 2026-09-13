@@ -26,3 +26,5 @@ class DemoSeedTests(TestCase):
                 "manual_review": "REVIEW",
             },
         )
+        approved = Invoice.objects.get(demo_scenario="approved")
+        self.assertEqual(approved.risk_assessments.first().term_days, 45)

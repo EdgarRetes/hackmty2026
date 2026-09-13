@@ -1,8 +1,9 @@
 # factorai (mty2026)
 
-A monorepo skeleton for a factoring marketplace where multiple
+A working hackathon MVP for a factoring marketplace where multiple
 **financiadoras** (lenders) compete by bidding on pending invoices from
-Mexican SMEs. This is scaffolding only — no business logic yet. See
+Mexican SMEs. It includes explainable invoice underwriting, term-sensitive
+pricing, deterministic approval/review/rejection demos and persisted offers. See
 [`AGENTS.md`](AGENTS.md) for the full project brief and conventions.
 
 ## Layout
@@ -45,3 +46,21 @@ npm run dev
 With both running, open http://localhost:3000 — it calls the backend's
 `GET /api/health/` and displays the JSON response on screen. That round
 trip is the proof the two services are wired together correctly.
+
+## MVP de riesgo
+
+`python manage.py seed_demo_data` creates four deterministic scenarios:
+
+| Scenario | Expected decision | Purpose |
+|---|---|---|
+| `approved` | `APPROVE` / A | Valid CFDI-shaped fields and a strong payer |
+| `risk_rejected` | `REJECT` / E | Severe arrears, defaults and weak payer indicators |
+| `eligibility_rejected` | `REJECT` | Cancelled CFDI status |
+| `manual_review` | `REVIEW` / N | Insufficient payment history and bureau information |
+
+The offers page displays PD, LGD, expected loss, score, rating, term,
+suggested monthly rate, reasons and warnings. Values are fictional and
+deterministic: they demonstrate the contract and policy, not a regulated rating
+or a live SAT/bureau response. Design decisions, formulas, official references
+and limitations are documented in
+[`backend/README.md`](backend/README.md#explainable-risk-mvp).
