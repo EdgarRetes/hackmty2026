@@ -51,12 +51,17 @@ export interface PublicationPageData {
  * Publishes several of the empresa's own pending invoices together as one
  * package (a "publicación"/batch) a financiadora can fund as a whole.
  */
-export async function createPublication(invoiceIds: number[]): Promise<{ id: number }> {
+export async function createPublication(invoiceIds: number[], termDays = 30): Promise<{ id: number }> {
   return apiRequest<ApiPublication>("/api/invoice-batches/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ invoice_ids: invoiceIds }),
+    body: JSON.stringify({ invoice_ids: invoiceIds, term_days: termDays }),
   });
+}
+
+export type PackagePreview = { candidates: { id: number; folio: string; amount: string; net_disbursement: string; expected_loss: string }[]; recommendation: { invoice_ids: number[]; net_disbursement: string; expected_loss: string; target_reached: boolean; shortfall: string; excess: string } | null };
+export async function previewPackage(termDays: number, liquidityTarget?: string): Promise<PackagePreview> {
+  return apiRequest<PackagePreview>("/api/invoice-batches/preview/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(liquidityTarget ? { term_days: termDays, mode: "liquidity_target", liquidity_target: liquidityTarget } : { term_days: termDays, mode: "manual" }) });
 }
 
 export async function getPublications(): Promise<PublicationListItem[]> {

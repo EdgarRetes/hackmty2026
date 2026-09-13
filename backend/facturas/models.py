@@ -17,6 +17,9 @@ class InvoiceBatch(models.Model):
     company = models.ForeignKey(
         Company, on_delete=models.CASCADE, related_name="invoice_batches"
     )
+    factoring_term_days = models.PositiveSmallIntegerField(
+        choices=((30, "30 days"), (60, "60 days"), (90, "90 days")), default=30
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

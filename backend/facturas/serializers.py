@@ -56,7 +56,7 @@ class InvoiceBatchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = InvoiceBatch
-        fields = ("id", "company", "invoices", "total_amount", "created_at")
+        fields = ("id", "company", "invoices", "total_amount", "factoring_term_days", "created_at")
 
     def get_total_amount(self, batch):
         total = sum((invoice.amount for invoice in batch.invoices.all()), Decimal("0.00"))

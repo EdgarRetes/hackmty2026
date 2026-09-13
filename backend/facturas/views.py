@@ -1,13 +1,16 @@
+from decimal import Decimal
+
 from django.db.models import Count, Prefetch, Q
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from core.risk_engine import assess_invoice
+from core.risk_engine import assess_invoice, evaluate_invoice
 from empresas.models import Company
 
 from . import assistant
 from .models import Invoice, InvoiceBatch
+from .package_optimizer import recommend_package
 from .serializers import InvoiceBatchSerializer, InvoiceSerializer, RiskAssessmentSerializer
 from .services import publish_invoices
 
@@ -126,7 +129,10 @@ def invoice_batch_list(request):
         batches = _batch_queryset().order_by("-created_at")
         return Response(InvoiceBatchSerializer(batches, many=True).data)
 
-    batch, error = publish_invoices(request.data.get("invoice_ids") or [])
+    term_days = request.data.get("term_days", 30)
+    batch, error = publish_invoices(
+        request.data.get("invoice_ids") or [], term_days=term_days
+    )
     if error:
         return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -134,6 +140,31 @@ def invoice_batch_list(request):
         InvoiceBatchSerializer(_batch_queryset().get(pk=batch.pk)).data,
         status=status.HTTP_201_CREATED,
     )
+
+
+@api_view(["POST"])
+def invoice_batch_preview(request):
+    term_days = request.data.get("term_days")
+    mode = request.data.get("mode")
+    if term_days not in (30, 60, 90):
+        return Response({"detail": "term_days must be 30, 60, or 90."}, status=status.HTTP_400_BAD_REQUEST)
+    if mode not in ("manual", "liquidity_target"):
+        return Response({"detail": "mode must be manual or liquidity_target."}, status=status.HTTP_400_BAD_REQUEST)
+    target = request.data.get("liquidity_target")
+    if mode == "liquidity_target":
+        try:
+            target = Decimal(str(target))
+            if target <= 0:
+                raise ValueError
+        except (ValueError, TypeError, ArithmeticError):
+            return Response({"detail": "liquidity_target must be positive."}, status=status.HTTP_400_BAD_REQUEST)
+    candidates = []
+    for invoice in Invoice.objects.filter(status=Invoice.Status.AVAILABLE, batch__isnull=True).select_related("company", "debtor_client"):
+        assessment = evaluate_invoice(invoice, term_days=term_days)
+        if assessment["decision"] == "APPROVE":
+            candidates.append({"id": invoice.id, "folio": f"FAC-2026-{invoice.id:04d}", "amount": invoice.amount, "net_disbursement": assessment["net_disbursement"], "expected_loss": assessment["expected_loss"]})
+    recommendation = recommend_package(candidates, target) if mode == "liquidity_target" else None
+    return Response({"term_days": term_days, "candidates": [{key: str(value) if isinstance(value, Decimal) else value for key, value in candidate.items()} for candidate in candidates], "recommendation": {key: str(value) if isinstance(value, Decimal) else value for key, value in recommendation.items()} if recommendation else None})
 
 
 @api_view(["GET"])
