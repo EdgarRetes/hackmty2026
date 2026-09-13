@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.test import TestCase
+from django.core.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from empresas.models import Company, DebtorClient
@@ -42,3 +43,39 @@ class InvoiceApiTests(TestCase):
         response = self.client.get("/api/invoices/INV-9999/")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data, {"detail": "Invoice not found."})
+
+
+class InvoiceValidationTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(
+            rfc="VAL010101AA1", legal_name="Empresa validación"
+        )
+        self.debtor = DebtorClient.objects.create(
+            company=self.company, name="Pagador validación", archetype="reliable"
+        )
+
+    def test_rejects_due_date_before_issue_date(self):
+        invoice = Invoice(
+            company=self.company,
+            debtor_client=self.debtor,
+            amount=Decimal("1000.00"),
+            outstanding_balance=Decimal("1000.00"),
+            issue_date=date.today(),
+            due_date=date.today() - timedelta(days=1),
+        )
+
+        with self.assertRaises(ValidationError):
+            invoice.full_clean()
+
+    def test_rejects_non_positive_outstanding_balance(self):
+        invoice = Invoice(
+            company=self.company,
+            debtor_client=self.debtor,
+            amount=Decimal("1000.00"),
+            outstanding_balance=Decimal("0.00"),
+            issue_date=date.today(),
+            due_date=date.today() + timedelta(days=30),
+        )
+
+        with self.assertRaises(ValidationError):
+            invoice.full_clean()

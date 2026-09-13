@@ -10,6 +10,13 @@ class Offer(models.Model):
     invoice = models.ForeignKey(
         Invoice, on_delete=models.CASCADE, related_name="offers"
     )
+    risk_assessment = models.ForeignKey(
+        "facturas.RiskAssessment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="offers",
+    )
     lender = models.ForeignKey(
         Lender, on_delete=models.CASCADE, related_name="offers"
     )
