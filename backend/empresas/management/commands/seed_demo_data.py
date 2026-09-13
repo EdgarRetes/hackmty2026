@@ -14,6 +14,7 @@ from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
 from mercado.matching_engine import LENDER_IDENTITIES
+from mercado.models import Offer
 
 DEMO_PROFILES = {
     "empresa": {"username": "lucia.martinez", "first_name": "Lucía", "last_name": "Martínez"},
@@ -244,7 +245,9 @@ class Command(BaseCommand):
     def _seed_debtor_clients(self, company):
         # Wipe this company's existing debtor clients so re-running the
         # command gives a fresh, consistent dataset instead of piling up
-        # duplicates. Cascades to PaymentHistory and Invoice automatically.
+        # duplicates. Offers protect their assessment snapshot, so they must
+        # be removed before invoices and debtor clients can cascade safely.
+        Offer.objects.filter(invoice__company=company).delete()
         DebtorClient.objects.filter(company=company).delete()
         # InvoiceBatch has its own FK straight to Company (not through
         # DebtorClient), so it doesn't get cascade-deleted above — wipe it

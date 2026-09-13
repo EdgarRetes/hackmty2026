@@ -4,6 +4,8 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from facturas.models import Invoice
+from financiadoras.models import Lender
+from mercado.models import Offer
 
 
 class DemoSeedTests(TestCase):
@@ -11,6 +13,14 @@ class DemoSeedTests(TestCase):
         output = StringIO()
 
         call_command("seed_demo_data", stdout=output)
+        approved = Invoice.objects.get(demo_scenario="approved")
+        Offer.objects.create(
+            invoice=approved,
+            risk_assessment=approved.risk_assessments.first(),
+            lender=Lender.objects.first(),
+            advance_percentage="95.00",
+            rate="1.50",
+        )
         call_command("seed_demo_data", stdout=output)
 
         scenarios = {
