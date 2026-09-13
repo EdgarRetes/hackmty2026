@@ -56,7 +56,9 @@ tool like `direnv`/`python-dotenv`) before running `manage.py`.
 | `DEBUG` | `True`/`False` |
 | `ALLOWED_HOSTS` | Comma-separated |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated, must include the frontend's origin |
-| `GEMINI_API_KEY` | Not used yet — reserved for later Gemini API integration |
+| `GEMINI_API_KEY` | Gemini API key for the invoice-publishing assistant (`facturas/assistant.py`). Never hardcode, log, or commit it. |
+| `GEMINI_MODEL` | Optional. Overrides the assistant's model (default `gemini-3.7-flash`). |
+| `NESSIE_API_KEY` | Capital One Nessie sandbox key, used only by `manage.py seed_demo_data --with-nessie` to provision fake bank customers/accounts/deposits. Never hardcode, log, or commit it. |
 
 ## Running locally
 
@@ -100,6 +102,63 @@ respectively), each registered in that app's `admin.py`. `/admin/` is
 enabled as an internal data-management UI — create a superuser with
 `python manage.py createsuperuser` to use it. Invoice underwriting and
 offer matching are implemented as the explainable hackathon MVP below.
+
+## Arquitectura
+
+Todo el flujo de negocio pasa por tres subsistemas, cada uno con una sola
+responsabilidad, para que ninguno tenga que "adivinar" lo que hace otro:
+
+```
+                        ┌────────────────────────┐
+                        │   core.risk_engine       │
+                        │   evaluate_invoice() /   │
+                        │   assess_invoice()       │  ← underwriting explicable
+                        │   (elegibilidad + score) │     (una sola fuente de verdad)
+                        └───────────┬──────────────┘
+                                    │ RiskAssessment (persistido, inmutable)
+                    ┌───────────────┼────────────────────┐
+                    ▼               ▼                     ▼
+        mercado.matching_engine   facturas.package_optimizer   facturas.assistant
+        (cotiza 3 financiadoras   (arma el paquete óptimo      (agente Gemini con
+         variando anticipo/tasa    para una meta de liquidez     function calling sobre
+         alrededor de lo que        — usado por "Crear paquete") los mismos servicios)
+         recomienda el underwriting)
+```
+
+- **`core.risk_engine`** es la única función que decide si una factura es
+  financiable y a qué tasa. Todo lo demás (ofertas, paquetes, el asistente)
+  consume su resultado — nunca vuelve a calcular riesgo por su cuenta.
+- **`mercado.matching_engine`** simula 3 "personalidades" de financiadora
+  (conservadora, agresiva, especializada) ofreciendo variantes de anticipo/tasa
+  alrededor de la recomendación del underwriting, y las rankea por efectivo
+  neto entregado a la empresa.
+- **`facturas.package_optimizer`** resuelve, dado un monto objetivo de
+  liquidez y un plazo (30/60/90 días), qué subconjunto de facturas elegibles
+  lo cubre con la menor pérdida esperada (fuerza bruta sobre el espacio de
+  subconjuntos — ver la nota de escalabilidad en la tabla de decisiones).
+- **`facturas.services`** centraliza las reglas de publicar un paquete
+  (`publish_invoices`) y de armar candidatos para el optimizador
+  (`build_liquidity_candidates`), para que el endpoint REST y el asistente de
+  IA nunca diverjan en la validación.
+- **`facturas.assistant`** es un agente Gemini con *function calling* sobre
+  esos mismos servicios: puede listar facturas, explicar por qué una no
+  calificó, simular un paquete, optimizarlo por meta de liquidez, y — si el
+  usuario lo confirma — publicarlo de verdad. Nunca inventa números: cada
+  respuesta viene de una llamada real a estas funciones contra la base de
+  datos en producción.
+
+### Flujo de una publicación
+
+1. La empresa ve sus facturas `available` (o le pide al asistente una
+   combinación por monto objetivo).
+2. `POST /api/invoice-batches/` (o la herramienta `publicar_paquete` del
+   asistente) llama a `publish_invoices()`, que valida elegibilidad y crea un
+   `InvoiceBatch` con su `factoring_term_days`.
+3. Una financiadora consulta `GET /api/invoice-batches/{id}/offers/`, que
+   corre el underwriting + matching engine sobre cada factura del paquete y
+   agrega las 3 cotizaciones ponderadas por monto.
+4. `POST /api/invoice-batches/{id}/accept/` persiste un `Offer` real por
+   factura y marca todo el paquete como `in_auction` → `funded`.
 
 ## Explainable risk MVP
 
@@ -194,6 +253,22 @@ Recalibrate PD only after labeled outcomes, temporal validation, probability
 calibration, drift monitoring and model governance. KYC/KYB and lender
 suitability remain separate onboarding gates.
 
-Selecting invoices against a liquidity target is the next phase: binary
-MILP/CP-SAT constrained by eligibility, net disbursement, payer/sector
-concentration, lender capital and expected loss. `InvoiceBatch` remains manual.
+Selecting invoices against a liquidity target now exists (`facturas/package_optimizer.py`,
+used by `POST /api/invoice-batches/preview/` and the assistant's
+`optimizar_paquete_por_liquidez` tool), but it's a brute-force 0/1 knapsack
+over the candidate list, not a constrained solver — see the decisions table
+below for why that's fine at hackathon scale and what a real deployment would
+need instead (payer/sector concentration limits, lender capital constraints,
+MILP/CP-SAT for larger candidate pools).
+
+## Decisiones técnicas: qué usamos, por qué, y si serviría en producción
+
+| Pieza | Qué usamos | Por qué lo elegimos | Ventaja sobre otras opciones | ¿Sirve en producción? |
+|---|---|---|---|---|
+| **Framework web** | Django + Django REST Framework | Es el framework con más baterías incluidas para modelar entidades financieras relacionadas (empresa → factura → oferta) con validación, migraciones y un ORM maduro desde el día uno de un hackathon. DRF da serializers, permisos y un exception handler consistentes gratis. | Frente a Flask/FastAPI: no tuvimos que armar ORM, migraciones ni admin a mano — eso costó tiempo cero. Frente a Node/Express: el ORM de Django modela mejor relaciones complejas (FKs, constraints a nivel de base de datos) sin un ORM externo. | **Sí**, con trabajo adicional real: reemplazar el servidor de desarrollo por Gunicorn/uWSGI detrás de Nginx (ya lo hacemos), agregar autenticación real (DRF SimpleJWT u OAuth), rate limiting, y logging estructurado. Django es un framework de producción probado (Instagram, Disqus) — no es una limitante. |
+| **Base de datos** | PostgreSQL + TimescaleDB, hosteada en Tiger Cloud | Postgres da integridad transaccional real (constraints `CheckConstraint`, FKs) que un producto financiero necesita — no queríamos "facturas con monto negativo" siendo posible a nivel de base de datos. TimescaleDB extiende Postgres para series de tiempo (historial de pagos, tasas de referencia por fecha) sin cambiar de motor. | Frente a MongoDB/NoSQL: las relaciones factura↔empresa↔financiadora↔oferta son inherentemente relacionales; forzarlas a documentos hubiera significado reimplementar joins e integridad referencial a mano. Frente a MySQL: mejor soporte de tipos (JSONField nativo para `reasons`/`warnings`/`input_snapshot`) y extensiones (Timescale). | **Sí.** Postgres gestionado (Tiger Cloud, RDS, Cloud SQL) es una elección de producción estándar en fintech. Lo que faltaría: backups verificados, réplicas de lectura, y point-in-time recovery configurado explícitamente (Tiger Cloud lo ofrece, pero no lo activamos para el demo). |
+| **Motor de riesgo** | Scorecard determinístico explicable (`core/risk_engine.py`), no machine learning | Empezamos con un modelo de regresión cuantil (`GradientBoostingRegressor` de scikit-learn) entrenado sobre datos sintéticos — pero un modelo de ML entrenado con datos inventados no aprende nada real, solo memoriza el ruido con el que lo generamos. Un scorecard es reproducible, cada decisión se explica con razones concretas, y las pruebas tienen resultados esperados estables. | Frente a un modelo de ML "real": no necesita datos históricos reales (que no existen para un demo), es auditable línea por línea (un regulador puede leer la fórmula), y no tiene el riesgo de overfitting a datos falsos que un ML sí tiene. | **Parcialmente.** El *framework* de dos compuertas (elegibilidad + score ponderado) sí es una arquitectura válida de producción — así funcionan muchos scorecards de crédito reales. Lo que **no** serviría tal cual: las bandas de PD/LGD/tasa están calibradas a mano, no con datos históricos reales, y necesitarían recalibración con outcomes reales, validación temporal y gobernanza de modelo antes de tomar decisiones de crédito reales (ver "Production evolution" arriba). |
+| **Optimizador de paquetes** | Fuerza bruta 0/1 sobre subconjuntos (`facturas/package_optimizer.py`) | Con pocas facturas candidatas (decenas, no miles) enumerar todos los subconjuntos y quedarse con el mejor es simple, correcto, y no requiere una librería de optimización adicional. | Frente a un solver MILP (PuLP/OR-Tools/cvxpy): cero dependencias nuevas, cero configuración de solver, y es trivial de leer/debuggear. | **No tal cual.** Es O(2ⁿ) — con ~20 facturas ya son >1,000,000 combinaciones; se volvería lento con un portafolio real de cientos de facturas. En producción esto se reemplaza por un solver de programación entera (OR-Tools CP-SAT o PuLP/CBC) con las mismas restricciones (monto objetivo, plazo) más las que hoy faltan: concentración por deudor/sector y capital disponible por financiadora. |
+| **Asistente de IA** | Gemini (`google-genai` SDK), modelo Flash, con *function calling* automático | Necesitábamos que el asistente **nunca inventara** montos o tasas — el patrón de function calling deja que el modelo solo razone y redacte, mientras cada número sale de una llamada real a `evaluate_invoice`/`recommend_package`/`publish_invoices` contra la base de datos. El SDK de Google maneja el loop de tool-calling automáticamente a partir de funciones de Python normales (con type hints + docstring), sin tener que escribir el loop de "modelo pide función → yo la ejecuto → le regreso el resultado" a mano. | Frente a construir el loop de function calling manualmente (API REST cruda): mucho menos código, y el schema de cada herramienta se genera solo desde la firma de la función. Frente a un framework como LangChain/LangGraph: para 4 herramientas y un solo agente, una dependencia completa de orquestación es peso muerto — el SDK oficial ya resuelve exactamente esto sin abstracciones extra que aprender. | **Sí, como asistente — no como el único canal para publicar.** El patrón (LLM + tools sobre servicios reales, nunca inventa números) es válido en producción. Lo que le falta antes de producción real: manejo de rate limits/reintentos con backoff, un límite explícito de gasto por conversación, logging de qué herramientas se llamaron (auditoría), y probablemente un modelo con guardrails adicionales dado que puede ejecutar una acción real (publicar) — hoy confía en el prompt del sistema para pedir confirmación, sin una capa de aprobación separada del texto del usuario. |
+| **Despliegue backend** | Gunicorn + systemd + Nginx en una VPS de Vultr, sin Docker | El equipo priorizó tener el backend corriendo y depurable rápido durante el hackathon; systemd da reinicio automático y logs vía `journalctl` sin aprender Docker/Kubernetes bajo presión de tiempo. | Frente a contenedores: menos capas que depurar cuando algo falla a las 2am de un hackathon (lo vivimos varias veces: migraciones sin aplicar, conflictos de git sin resolver) — con `journalctl -u gunicorn` se ve el traceback real de inmediato. | **Funciona, pero no es cómo se vería en producción real.** Sin contenedores, escalar horizontalmente (más de una instancia) o reproducir el entorno exacto en otra máquina es manual. Un despliegue real usaría Docker + un orquestador (ECS/Cloud Run/Kubernetes) o una PaaS (Railway/Render/Fly.io) para réplicas, rollbacks atómicos, y health checks automáticos — nada de esto es difícil de agregar después, el código no depende de estar en una VPS pelada. |
+| **Base de datos → migraciones** | Migraciones de Django estándar, aplicadas a mano contra la DB compartida | Es el mecanismo nativo del ORM elegido; cualquier alternativa (Alembic, SQL a mano) hubiera sido trabajo extra sin beneficio real dado que ya usamos Django. | Ninguna herramienta externa que aprender; el historial de migraciones documenta la evolución del esquema. | **El mecanismo sí, el proceso no.** Varias veces durante el desarrollo el sitio se cayó porque una migración nueva no se había corrido contra la base compartida. En producción esto se resuelve con un paso de `migrate` automático en el pipeline de despliegue (no manual), para que sea imposible desplegar código nuevo sin su migración correspondiente. |
