@@ -1,3 +1,5 @@
+"use client";
+
 import type { InvoiceListItem } from "@/lib/invoices";
 import { Icon } from "../icons";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
@@ -37,6 +39,12 @@ export function InvoiceAction({ invoice, onPublish, publishing = false }: { invo
   if (invoice.batchId) return <a href={`/publications/${invoice.batchId}`} className="inline-flex min-w-[116px] justify-center rounded-lg bg-[#f3eaff] px-4 py-2 text-xs font-medium text-[#7c3aed] transition hover:bg-[#ecdcff]">Ver publicación</a>;
   if (invoice.status === "published" && invoice.offersCount > 0) return <a href={`/offers/${encodeURIComponent(invoice.folio)}`} className="inline-flex min-w-[116px] justify-center rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff]">Ver ofertas</a>;
   if (invoice.status === "funded") return <button className="min-w-[116px] rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff]">Ver detalles</button>;
-  if (invoice.status === "available") return <button type="button" onClick={() => onPublish?.(invoice.id)} disabled={publishing} className="min-w-[116px] rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff] disabled:cursor-wait disabled:opacity-60">{publishing ? "Publicando..." : "Publicar factura"}</button>;
+  // Without an onPublish handler (e.g. the dashboard's read-only table) this
+  // has to be a link, not a dead button — and a Server Component parent can't
+  // be handed an onClick at all.
+  if (invoice.status === "available") {
+    if (!onPublish) return <a href="/invoices" className="inline-flex min-w-[116px] justify-center rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff]">Publicar factura</a>;
+    return <button type="button" onClick={() => onPublish(invoice.id)} disabled={publishing} className="min-w-[116px] rounded-lg bg-[#e6f3ff] px-4 py-2 text-xs font-medium text-[#0875d1] transition hover:bg-[#d8ebff] disabled:cursor-wait disabled:opacity-60">{publishing ? "Publicando..." : "Publicar factura"}</button>;
+  }
   return <button className="min-w-[116px] rounded-lg bg-slate-100 px-4 py-2 text-xs font-medium text-navy transition hover:bg-slate-200">Ver factura</button>;
 }

@@ -1,3 +1,5 @@
+"use client";
+
 import { Icon } from "../icons";
 import type { Offer, OfferTone } from "./data";
 
