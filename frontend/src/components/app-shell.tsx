@@ -16,8 +16,7 @@ const smePrimary: NavItem[] = [
 ];
 const financierPrimary: NavItem[] = [
   { label: "Inicio", icon: "home", href: "/financier" }, { label: "Marketplace", icon: "search", href: "/marketplace" },
-  { label: "Ofertas", icon: "grid", href: "#" }, { label: "Portafolio", icon: "briefcase", href: "/financier#portfolio" },
-  { label: "Operaciones", icon: "transfer", href: "#" },
+  { label: "Ofertas", icon: "grid", href: "/financier/offers" }, { label: "Portafolio", icon: "briefcase", href: "/portfolio" },
 ];
 const secondary: NavItem[] = [
   { label: "Configuración", icon: "settings", href: "#" }, { label: "Ayuda", icon: "help", href: "#" },
