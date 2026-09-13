@@ -566,7 +566,20 @@ pago del deudor y trazabilidad contable completa.
 ### 11. Despliegue: Vultr (backend) + Vercel (frontend)
 
 **Qué usamos:** Backend en un VPS Ubuntu de Vultr con Gunicorn + systemd +
-Nginx, **sin Docker**. Frontend en Vercel con dominio `.tech`.
+Nginx, **sin Docker**. Frontend en Vercel. Dominio `.tech` registrado en
+get.tech, con el DNS dividido entre ambos:
+
+| Registro | Host | Apunta a | Servicio |
+|---|---|---|---|
+| A | `@` (factora.tech) | IP de Vercel | Frontend |
+| CNAME | `www` | `*.vercel-dns-xxx.com` | Frontend |
+| A | `api` (api.factora.tech) | IP del VPS de Vultr | Backend |
+
+El apex y `www` resuelven al frontend en Vercel; `api.factora.tech` resuelve
+directo a la IP del VPS de Vultr donde vive Nginx + Gunicorn. Es la misma
+separación de responsabilidades del resto del stack, expresada en DNS: cada
+subdominio va al servicio que realmente lo atiende, sin un proxy intermedio
+entre ellos.
 
 **Por qué sin Docker (cambio vs. el plan original):** planeamos Docker, pero
 durante el hackathon priorizamos poder depurar rápido. Con systemd, un
