@@ -16,8 +16,8 @@ from django.utils import timezone
 from google import genai
 from google.genai import types
 
-from core.risk_engine import predict_risk
-from facturas.models import Invoice
+from core.risk_engine import assess_invoice
+from facturas.models import Invoice, RiskAssessment
 from mercado.matching_engine import opportunity_summary, rank_offers
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
@@ -31,7 +31,10 @@ SYSTEM_INSTRUCTION = (
     "tasas ni niveles de riesgo. Explica tus recomendaciones con números "
     "concretos (monto, tasa estimada, efectivo neto, riesgo) en pesos "
     "mexicanos, compara opciones cuando tenga sentido, y sé breve y "
-    "directo, como lo sería un asesor financiero real."
+    "directo, como lo sería un asesor financiero real. Cada factura pasa "
+    "primero por un underwriting automático (aprobada/revisión/rechazada); "
+    "nunca recomiendes juntar una factura que no esté aprobada, y explica "
+    "la razón si el usuario pregunta por qué una no calificó."
 )
 
 
@@ -47,9 +50,22 @@ def _pending_invoices(company):
         Invoice.objects.filter(
             company=company, status=Invoice.Status.PENDING, batch__isnull=True
         )
-        .select_related("debtor_client")
+        .select_related("debtor_client", "company")
         .order_by("due_date")
     )
+
+
+def _latest_assessment(invoice):
+    """
+    Reuse the invoice's latest underwriting decision when one already
+    exists (same pattern as matching_engine.opportunity_summary) instead
+    of persisting a fresh RiskAssessment row on every assistant query —
+    the assistant reads a lot more often than it writes.
+    """
+    assessment = invoice.risk_assessments.order_by("-created_at").first()
+    if assessment is None:
+        assessment = assess_invoice(invoice)
+    return assessment
 
 
 def _build_tools(company):
@@ -60,16 +76,18 @@ def _build_tools(company):
     """
 
     def listar_facturas_disponibles() -> list[dict]:
-        """Lista las facturas pendientes de la empresa que aún no se han publicado ni tienen financiamiento. Para cada una incluye su cliente, sector, monto, días para vencer, riesgo estimado y una cotización estimada (tasa y efectivo neto) si se financiara hoy sola.
+        """Lista las facturas pendientes de la empresa que aún no se han publicado ni tienen financiamiento. Para cada una incluye su cliente, sector, monto, días para vencer, riesgo estimado y, si ya pasó el underwriting automático, una cotización estimada (tasa y efectivo neto) si se financiara hoy sola. Las facturas que no pasaron el underwriting se marcan como no elegibles y no deben recomendarse para publicar.
 
         Returns:
-            Una lista de facturas con: invoice_id, folio, cliente, sector, monto, dias_para_vencer, riesgo, tasa_estimada_pct, efectivo_neto_estimado.
+            Una lista de facturas con: invoice_id, folio, cliente, sector, monto, dias_para_vencer, riesgo, elegible, motivo_no_elegible, tasa_estimada_pct, efectivo_neto_estimado.
         """
         today = timezone.now().date()
         results = []
         for invoice in _pending_invoices(company):
+            assessment = _latest_assessment(invoice)
             summary = opportunity_summary(invoice)
-            best_quote = rank_offers(invoice)[0]
+            quotes = rank_offers(invoice, assessment)
+            elegible = assessment.decision == RiskAssessment.Decision.APPROVE
             results.append(
                 {
                     "invoice_id": invoice.id,
@@ -79,43 +97,52 @@ def _build_tools(company):
                     "monto": str(invoice.amount),
                     "dias_para_vencer": (invoice.due_date - today).days,
                     "riesgo": summary["risk"],
-                    "tasa_estimada_pct": summary["estimated_return_rate"],
-                    "efectivo_neto_estimado": best_quote["net_amount"],
+                    "elegible": elegible,
+                    "motivo_no_elegible": None if elegible else list(assessment.reasons),
+                    "tasa_estimada_pct": summary["estimated_return_rate"] if elegible else None,
+                    "efectivo_neto_estimado": quotes[0]["net_amount"] if quotes else None,
                 }
             )
         return results
 
     def detalle_factura(invoice_id: int) -> dict:
-        """Da el detalle completo de una factura pendiente: predicción de riesgo (días de atraso p10/p50/p90) y la cotización de cada una de las 3 financiadoras disponibles (conservadora, agresiva, especializada), con su porcentaje de anticipo, tasa y efectivo neto.
+        """Da el detalle completo de una factura pendiente: el resultado del underwriting automático (decisión, calificación, score de riesgo, probabilidad de incumplimiento, razones y advertencias) y, si fue aprobada, la cotización de las 3 financiadoras disponibles (conservadora, agresiva, especializada) con su porcentaje de anticipo, tasa y efectivo neto.
 
         Args:
             invoice_id: El id numérico de la factura.
         """
         try:
-            invoice = Invoice.objects.select_related("debtor_client").get(
+            invoice = Invoice.objects.select_related("debtor_client", "company").get(
                 pk=invoice_id, company=company
             )
         except Invoice.DoesNotExist:
             return {"error": f"No se encontró la factura {invoice_id} para esta empresa."}
 
-        risk = predict_risk(invoice)
+        assessment = _latest_assessment(invoice)
         return {
             "invoice_id": invoice.id,
             "cliente": invoice.debtor_client.name,
             "monto": str(invoice.amount),
-            "riesgo_dias_atraso": {"p10": risk["p10"], "p50": risk["p50"], "p90": risk["p90"]},
-            "cotizaciones": rank_offers(invoice),
+            "underwriting": {
+                "decision": assessment.decision,
+                "calificacion": assessment.rating,
+                "riesgo_score": str(assessment.risk_score),
+                "probabilidad_incumplimiento_pct": str(assessment.probability_of_default * 100),
+                "razones": list(assessment.reasons),
+                "advertencias": list(assessment.warnings),
+            },
+            "cotizaciones": rank_offers(invoice, assessment),
         }
 
     def simular_paquete(invoice_ids: list[int]) -> dict:
-        """Simula juntar dos o más facturas pendientes de esta empresa en una sola publicación (paquete) y calcula, para cada financiadora, el resultado combinado: efectivo neto total, tasa promedio ponderada por monto y porcentaje de anticipo promedio. No publica nada, solo calcula.
+        """Simula juntar dos o más facturas pendientes de esta empresa en una sola publicación (paquete) y calcula, para cada financiadora, el resultado combinado: efectivo neto total, tasa promedio ponderada por monto y porcentaje de anticipo promedio. Si alguna factura del paquete no pasa el underwriting automático, la publicación completa se rechazaría (así funciona el endpoint real), así que se reporta el error en vez de un cálculo parcial. No publica nada, solo calcula.
 
         Args:
             invoice_ids: Lista de ids de las facturas a combinar (al menos 2 para que tenga sentido simular un paquete).
         """
         invoices = list(
             Invoice.objects.filter(pk__in=invoice_ids, company=company).select_related(
-                "debtor_client"
+                "debtor_client", "company"
             )
         )
         missing = set(invoice_ids) - {invoice.id for invoice in invoices}
@@ -127,7 +154,17 @@ def _build_tools(company):
         buckets = {}
         for invoice in invoices:
             amount = Decimal(str(invoice.amount))
-            for quote in rank_offers(invoice):
+            assessment = _latest_assessment(invoice)
+            if assessment.decision != RiskAssessment.Decision.APPROVE:
+                return {
+                    "error": (
+                        f"La publicación se rechazaría completa: la factura {invoice.id} "
+                        f"no pasó el underwriting automático."
+                    ),
+                    "invoice_id": invoice.id,
+                    "razones": list(assessment.reasons),
+                }
+            for quote in rank_offers(invoice, assessment):
                 lender_id = quote["lender"]["id"]
                 bucket = buckets.setdefault(
                     lender_id,
