@@ -1,9 +1,41 @@
 """
-Business logic shared between the REST endpoint and the assistant's
-publish tool, so publishing rules can't drift out of sync between them.
+Business logic shared between the REST endpoints and the assistant's
+tools, so rules can't drift out of sync between them.
 """
 
+from core.risk_engine import evaluate_invoice
+
 from .models import Invoice, InvoiceBatch
+
+
+def build_liquidity_candidates(term_days, company=None):
+    """
+    Every available, unbatched invoice that would be APPROVEd for factoring
+    at the given hypothetical term, with its net disbursement and expected
+    loss at that term — the same candidate pool package_optimizer.recommend_package
+    picks from. Shared by invoice_batch_preview and the assistant's
+    liquidity-target tool.
+    """
+    queryset = Invoice.objects.filter(
+        status=Invoice.Status.AVAILABLE, batch__isnull=True
+    ).select_related("company", "debtor_client")
+    if company is not None:
+        queryset = queryset.filter(company=company)
+
+    candidates = []
+    for invoice in queryset:
+        assessment = evaluate_invoice(invoice, term_days=term_days)
+        if assessment["decision"] == "APPROVE":
+            candidates.append(
+                {
+                    "id": invoice.id,
+                    "folio": f"FAC-2026-{invoice.id:04d}",
+                    "amount": invoice.amount,
+                    "net_disbursement": assessment["net_disbursement"],
+                    "expected_loss": assessment["expected_loss"],
+                }
+            )
+    return candidates
 
 
 def publish_invoices(invoice_ids, company=None, term_days=30):

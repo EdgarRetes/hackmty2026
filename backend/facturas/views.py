@@ -5,14 +5,14 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from core.risk_engine import assess_invoice, evaluate_invoice
+from core.risk_engine import assess_invoice
 from empresas.models import Company
 
 from . import assistant
 from .models import Invoice, InvoiceBatch
 from .package_optimizer import recommend_package
 from .serializers import InvoiceBatchSerializer, InvoiceSerializer, RiskAssessmentSerializer
-from .services import publish_invoices
+from .services import build_liquidity_candidates, publish_invoices
 
 
 def _invoice_queryset():
@@ -158,11 +158,7 @@ def invoice_batch_preview(request):
                 raise ValueError
         except (ValueError, TypeError, ArithmeticError):
             return Response({"detail": "liquidity_target must be positive."}, status=status.HTTP_400_BAD_REQUEST)
-    candidates = []
-    for invoice in Invoice.objects.filter(status=Invoice.Status.AVAILABLE, batch__isnull=True).select_related("company", "debtor_client"):
-        assessment = evaluate_invoice(invoice, term_days=term_days)
-        if assessment["decision"] == "APPROVE":
-            candidates.append({"id": invoice.id, "folio": f"FAC-2026-{invoice.id:04d}", "amount": invoice.amount, "net_disbursement": assessment["net_disbursement"], "expected_loss": assessment["expected_loss"]})
+    candidates = build_liquidity_candidates(term_days)
     recommendation = recommend_package(candidates, target) if mode == "liquidity_target" else None
     return Response({"term_days": term_days, "candidates": [{key: str(value) if isinstance(value, Decimal) else value for key, value in candidate.items()} for candidate in candidates], "recommendation": {key: str(value) if isinstance(value, Decimal) else value for key, value in recommendation.items()} if recommendation else None})
 

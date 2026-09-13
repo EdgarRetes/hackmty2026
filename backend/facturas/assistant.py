@@ -20,7 +20,8 @@ from core.risk_engine import assess_invoice
 from facturas.models import Invoice, RiskAssessment
 from mercado.matching_engine import opportunity_summary, rank_offers
 
-from .services import publish_invoices
+from .package_optimizer import recommend_package
+from .services import build_liquidity_candidates, publish_invoices
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
 
@@ -36,12 +37,18 @@ SYSTEM_INSTRUCTION = (
     "directo, como lo sería un asesor financiero real. Cada factura pasa "
     "primero por un underwriting automático (aprobada/revisión/rechazada); "
     "nunca recomiendes juntar una factura que no esté aprobada, y explica "
-    "la razón si el usuario pregunta por qué una no calificó. Cuando el "
+    "la razón si el usuario pregunta por qué una no calificó. Si el "
+    "usuario te dice cuánto efectivo necesita (con o sin plazo específico "
+    "de 30/60/90 días — usa 30 si no lo menciona), usa la herramienta "
+    "optimizar_paquete_por_liquidez para encontrar la combinación de "
+    "facturas que cubra esa meta con la menor pérdida esperada, igual que "
+    "el botón \"Crear paquete\" de la pantalla de Facturas. Cuando el "
     "usuario elija una de tus opciones o te pida explícitamente publicarla "
     "(por ejemplo \"quiero la opción 1\", \"publícala\", \"hazlo\"), usa la "
-    "herramienta publicar_paquete con esos invoice_id exactos — no le "
-    "pidas que lo haga él mismo, tú puedes publicarla directamente. "
-    "Confirma siempre qué publicaste y con qué facturas."
+    "herramienta publicar_paquete con esos invoice_id exactos y el mismo "
+    "plazo que usaste para calcularla — no le pidas que lo haga él mismo, "
+    "tú puedes publicarla directamente. Confirma siempre qué publicaste, "
+    "con qué facturas y a qué plazo."
 )
 
 
@@ -226,13 +233,52 @@ def _build_tools(company, published):
             "mejores_ofertas_por_financiadora": aggregated,
         }
 
-    def publicar_paquete(invoice_ids: list[int]) -> dict:
+    def optimizar_paquete_por_liquidez(monto_objetivo: float, plazo_dias: int = 30) -> dict:
+        """Encuentra la combinación de facturas disponibles que cubra una meta de efectivo con la menor pérdida esperada, para un plazo de factoraje dado — es la misma función que usa el botón "Crear paquete" de la pantalla de Facturas. A diferencia de simular_paquete (que compara financiadoras para facturas que tú ya elegiste), esta herramienta elige automáticamente qué facturas usar a partir de un monto objetivo.
+
+        Args:
+            monto_objetivo: Cuánto efectivo neto quiere recibir la empresa, en pesos mexicanos.
+            plazo_dias: Plazo del factoraje: 30, 60 o 90 días. Usa 30 si el usuario no especifica.
+        """
+        if plazo_dias not in (30, 60, 90):
+            return {"error": "plazo_dias debe ser 30, 60 o 90."}
+        if monto_objetivo <= 0:
+            return {"error": "monto_objetivo debe ser mayor a 0."}
+
+        candidates = build_liquidity_candidates(plazo_dias, company=company)
+        if not candidates:
+            return {"error": f"No hay facturas elegibles para un plazo de {plazo_dias} días en este momento."}
+
+        recommendation = recommend_package(candidates, Decimal(str(monto_objetivo)))
+        chosen = {c["id"]: c for c in candidates if c["id"] in recommendation["invoice_ids"]}
+        return {
+            "plazo_dias": plazo_dias,
+            "meta_liquidez": str(monto_objetivo),
+            "meta_cubierta": recommendation["target_reached"],
+            "faltante": str(recommendation["shortfall"]),
+            "excedente": str(recommendation["excess"]),
+            "efectivo_neto_estimado": str(recommendation["net_disbursement"]),
+            "perdida_esperada_estimada": str(recommendation["expected_loss"]),
+            "facturas": [
+                {
+                    "invoice_id": c["id"],
+                    "folio": c["folio"],
+                    "monto": str(c["amount"]),
+                    "efectivo_neto_estimado": str(c["net_disbursement"]),
+                    "perdida_esperada": str(c["expected_loss"]),
+                }
+                for c in chosen.values()
+            ],
+        }
+
+    def publicar_paquete(invoice_ids: list[int], plazo_dias: int = 30) -> dict:
         """Publica de verdad, ahora mismo, una publicación con las facturas indicadas — exactamente lo mismo que si el usuario le diera clic a "Publicar" en la pantalla de Facturas. Úsala solo cuando el usuario haya elegido una opción concreta o pida explícitamente publicar/confirmar. Una vez publicada, la publicación queda visible para las financiadoras y las facturas dejan de estar disponibles para otro paquete.
 
         Args:
             invoice_ids: Lista de ids de las facturas a publicar juntas (1 o más).
+            plazo_dias: Plazo del factoraje: 30, 60 o 90 días. Usa el mismo plazo con el que calculaste la combinación (30 si nunca se especificó uno).
         """
-        batch, error = publish_invoices(invoice_ids, company=company)
+        batch, error = publish_invoices(invoice_ids, company=company, term_days=plazo_dias)
         if error:
             return {"error": error}
         published.append(batch.id)
@@ -240,10 +286,17 @@ def _build_tools(company, published):
             "publicado": True,
             "batch_id": batch.id,
             "folio": f"PUB-{batch.id:04d}",
+            "plazo_dias": plazo_dias,
             "invoice_ids": list(invoice_ids),
         }
 
-    return [listar_facturas_disponibles, detalle_factura, simular_paquete, publicar_paquete]
+    return [
+        listar_facturas_disponibles,
+        detalle_factura,
+        simular_paquete,
+        optimizar_paquete_por_liquidez,
+        publicar_paquete,
+    ]
 
 
 def chat(company, message, history=None):
