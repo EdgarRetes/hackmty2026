@@ -2,6 +2,7 @@
 
 from decimal import ROUND_HALF_UP, Decimal
 
+from core.risk_engine import assess_invoice
 from facturas.models import RiskAssessment
 
 LENDER_IDENTITIES = {
@@ -60,3 +61,44 @@ def rank_offers(invoice, assessment):
     for quote in quotes:
         del quote["_sort_key"]
     return quotes
+
+
+def _risk_bucket(risk_score):
+    """Coarse low/medium/high bucket for marketplace/portfolio display."""
+    if risk_score <= 30:
+        return "low"
+    if risk_score <= 60:
+        return "medium"
+    return "high"
+
+
+def opportunity_summary(invoice):
+    """
+    A lightweight summary for marketplace-list and portfolio views: the
+    risk bucket the invoice's DebtorClient falls into, plus an estimated
+    return (rate and absolute amount) averaged across all 3 pricing
+    agents — a rough "what any lender could expect" figure, not tied to
+    one specific agent's strategy.
+    """
+    assessment = invoice.risk_assessments.order_by("-created_at").first()
+    if assessment is None:
+        assessment = assess_invoice(invoice)
+    quotes = rank_offers(invoice, assessment)
+    amount = Decimal(str(invoice.amount))
+
+    avg_rate = (
+        sum(Decimal(quote["rate"]) for quote in quotes) / len(quotes)
+        if quotes
+        else Decimal("0")
+    )
+    avg_rate = avg_rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    estimated_return = (amount * avg_rate / Decimal("100")).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    return {
+        "risk": _risk_bucket(assessment.risk_score),
+        "estimated_return_rate": str(avg_rate),
+        "estimated_return": str(estimated_return),
+        "sector": invoice.debtor_client.scian_sector or None,
+    }

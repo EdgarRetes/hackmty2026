@@ -54,6 +54,9 @@ function normalizeInvoice(invoice: ApiInvoice): InvoiceListItem {
 
 function mapStatus(status: ApiInvoice["status"], offersCount: number): InvoiceUiStatus {
   if (status === "in_auction" || (status === "pending" && offersCount > 0)) return "published";
-  if (status === "funded") return "funded";
+  // "paid" is a fully-settled financing, same bucket as "funded" here —
+  // this UI only distinguishes 3 states. Without this, a paid invoice
+  // fell through to "not_applicable" and looked publishable again.
+  if (status === "funded" || status === "paid") return "funded";
   return "not_applicable";
 }

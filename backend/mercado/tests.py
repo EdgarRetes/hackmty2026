@@ -6,9 +6,10 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from empresas.models import Company, DebtorClient, PaymentHistory
-from facturas.models import Invoice
+from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
 
+from .matching_engine import opportunity_summary
 from .models import Offer
 
 
@@ -90,3 +91,31 @@ class OffersApiTests(TestCase):
         response = self.client.post("/api/offers/9999/accept/")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data, {"detail": "Offer not found."})
+
+    def test_marketplace_summary_uses_the_current_risk_assessment(self):
+        summary = opportunity_summary(self.invoice)
+
+        self.assertEqual(summary["risk"], "low")
+        self.assertGreater(Decimal(summary["estimated_return_rate"]), Decimal("0"))
+
+    def test_accepting_a_batch_offer_persists_its_risk_assessment(self):
+        batch = InvoiceBatch.objects.create(company=self.invoice.company)
+        self.invoice.batch = batch
+        self.invoice.status = Invoice.Status.IN_AUCTION
+        self.invoice.save(update_fields=["batch", "status"])
+        lender = Lender.objects.create(
+            pk=1,
+            name="Financiera del Bajío",
+            risk_profile="conservative",
+        )
+
+        response = self.client.post(
+            f"/api/invoice-batches/{batch.id}/accept/",
+            {"lender_id": lender.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        offer = Offer.objects.get(invoice=self.invoice, lender=lender)
+        self.assertIsNotNone(offer.risk_assessment)
+        self.assertGreater(offer.financing_cost, Decimal("0"))

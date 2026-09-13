@@ -13,8 +13,17 @@ from core.risk_engine import assess_invoice
 from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
-from mercado.matching_engine import LENDER_IDENTITIES
+from mercado.matching_engine import LENDER_IDENTITIES, rank_offers
 from mercado.models import Offer
+
+# Mirrors mercado/views.py::FUNDING_TIMES — duplicated here (rather than
+# imported) so seeding doesn't reach into that view module's internals;
+# keep the two in sync if the funding-time copy ever changes.
+FUNDING_TIMES = {
+    "conservative": "48 horas",
+    "aggressive": "Hoy mismo",
+    "specialized": "24 horas",
+}
 
 DEMO_PROFILES = {
     "empresa": {"username": "lucia.martinez", "first_name": "Lucía", "last_name": "Martínez"},
@@ -34,12 +43,36 @@ DEMO_COMPANY = {
     "source_reference": "https://www.inegi.org.mx/servicios/api_denue.html",
 }
 
+def _debtor_spec(name, archetype, rfc, scian_sector, **overrides):
+    profiles = {
+        "reliable": {"employee_band": "51-100", "years_operating": 10, "bureau_score": 720, "current_ratio": Decimal("1.70"), "debt_to_ebitda": Decimal("2.10"), "operating_margin": Decimal("0.11000"), "history": [0, 0, 1, 0, 2, 0]},
+        "irregular": {"employee_band": "31-50", "years_operating": 6, "bureau_score": 610, "current_ratio": Decimal("1.10"), "debt_to_ebitda": Decimal("4.20"), "operating_margin": Decimal("0.05000"), "history": [5, 15, 30, 0, 45, 10]},
+        "delinquent": {"employee_band": "101-250", "years_operating": 6, "bureau_score": 430, "current_ratio": Decimal("0.60"), "debt_to_ebitda": Decimal("7.00"), "operating_margin": Decimal("-0.05000"), "has_legal_events": True, "history": [60, 75, 90, 95, 110, 120], "defaults": {3, 4, 5}},
+        "new": {"employee_band": "6-10", "years_operating": 1, "bureau_score": None, "current_ratio": Decimal("1.20"), "debt_to_ebitda": Decimal("3.00"), "operating_margin": Decimal("0.06000"), "history": []},
+    }
+    return {"name": name, "archetype": archetype, "rfc": rfc, "scian_sector": scian_sector, **profiles[archetype], **overrides}
+
+
 # Deterministic synthetic snapshots shaped like DENUE and bureau inputs.
 DEBTOR_CLIENTS = [
-    {"name": "Comercializadora del Norte", "archetype": "reliable", "rfc": "CDN010101AA1", "scian_sector": "461", "employee_band": "51-100", "years_operating": 14, "bureau_score": 740, "current_ratio": Decimal("1.90"), "debt_to_ebitda": Decimal("1.80"), "operating_margin": Decimal("0.13000"), "history": [0, 0, 1, 0, 2, 0]},
-    {"name": "Farmacias San Rafael", "archetype": "delinquent", "rfc": "FSR010101AA2", "scian_sector": "464", "employee_band": "101-250", "years_operating": 6, "bureau_score": 430, "current_ratio": Decimal("0.60"), "debt_to_ebitda": Decimal("7.00"), "operating_margin": Decimal("-0.05000"), "has_legal_events": True, "history": [60, 75, 90, 95, 110, 120], "defaults": {3, 4, 5}},
-    {"name": "Manufacturas Regiomontanas", "archetype": "reliable", "rfc": "MRE010101AA3", "scian_sector": "333", "employee_band": "31-50", "years_operating": 9, "bureau_score": 710, "current_ratio": Decimal("1.60"), "debt_to_ebitda": Decimal("2.30"), "operating_margin": Decimal("0.10000"), "history": [0, 0, 0, 1, 0]},
-    {"name": "Logística Nueva Era", "archetype": "new", "rfc": "LNE010101AA4", "scian_sector": "484", "employee_band": "6-10", "years_operating": 1, "bureau_score": None, "current_ratio": Decimal("1.20"), "debt_to_ebitda": Decimal("3.00"), "operating_margin": Decimal("0.06000"), "history": []},
+    _debtor_spec("Comercializadora del Norte", "reliable", "CDN010101AA1", "461", years_operating=14, bureau_score=740, current_ratio=Decimal("1.90"), debt_to_ebitda=Decimal("1.80"), operating_margin=Decimal("0.13000"), history=[0, 0, 1, 0, 2, 0]),
+    _debtor_spec("Farmacias San Rafael", "delinquent", "FSR010101AA2", "464"),
+    _debtor_spec("Manufacturas Regiomontanas", "reliable", "MRE010101AA3", "333", years_operating=9, bureau_score=710, current_ratio=Decimal("1.60"), debt_to_ebitda=Decimal("2.30"), operating_margin=Decimal("0.10000"), history=[0, 0, 0, 1, 0]),
+    _debtor_spec("Logística Nueva Era", "new", "LNE010101AA4", "484"),
+    _debtor_spec("Ferretería La Unión", "reliable", "FLU010101AA5", "467"),
+    _debtor_spec("Distribuidora Regia", "reliable", "DRE010101AA6", "431"),
+    _debtor_spec("Aceros del Norte", "reliable", "ADN010101AA7", "331"),
+    _debtor_spec("TecnoSoluciones del Norte", "reliable", "TSN010101AA8", "541"),
+    _debtor_spec("Grupo Constructor Peninsular", "irregular", "GCP010101AA9", "236"),
+    _debtor_spec("Materiales Industriales MTY", "irregular", "MIM010101AB1", "434"),
+    _debtor_spec("Transportes Fronterizos", "irregular", "TFR010101AB2", "484"),
+    _debtor_spec("Insumos Médicos MTY", "irregular", "IMM010101AB3", "464"),
+    _debtor_spec("Papelería Escolar MTY", "irregular", "PEM010101AB4", "465"),
+    _debtor_spec("Constructora Sierra Madre", "delinquent", "CSM010101AB5", "236"),
+    _debtor_spec("Textiles Cumbres", "delinquent", "TCU010101AB6", "313"),
+    _debtor_spec("Autotransportes del Golfo", "new", "ADG010101AB7", "484"),
+    _debtor_spec("AgroIndustrias Nuevo León", "new", "AIN010101AB8", "115"),
+    _debtor_spec("Hotelera Regiomontana", "new", "HRE010101AB9", "721"),
 ]
 
 INVOICE_TERMS_DAYS = (30, 45, 60)
@@ -51,6 +84,10 @@ NESSIE_ADDRESS = {
     "state": "NL",
     "zip": "64000",
 }
+
+
+def _random_amount(low=20000, high=350000):
+    return Decimal(str(round(random.uniform(low, high), 2)))
 
 
 def _paid_at_sequence(n, today, most_recent_offset=20):
@@ -119,15 +156,26 @@ class Command(BaseCommand):
 
             stats = self._seed_payment_history(clients, company, nessie if with_nessie else None)
             invoices = self._seed_invoices(company, clients)
-            assessments = [assess_invoice(invoice) for invoice in invoices]
-            invoice_count = len(invoices)
+            assessments = {invoice.pk: assess_invoice(invoice) for invoice in invoices}
+            financed = self._seed_financings(invoices, assessments)
+            financed_ids = {invoice.pk for invoice in financed}
+            publishable = [
+                invoice
+                for invoice in invoices
+                if invoice.pk not in financed_ids
+                and assessments[invoice.pk].decision == "APPROVE"
+            ]
+            published_batches = self._seed_publications(company, publishable)
 
+        pending_count = len(invoices) - len(financed)
         total_payments = sum(data["count"] for data in stats.values())
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nSeeded 1 company, {len(lenders)} lenders, 2 role profiles, "
                 f"{len(clients)} debtor clients, {total_payments} payment "
-                f"history records, {invoice_count} pending invoices."
+                f"history records, {pending_count} pending invoices "
+                f"({published_batches} publicaciones), "
+                f"{len(financed)} already-financed invoices."
                 + (" (with real Nessie records)" if with_nessie else "")
                 + "\n"
             )
@@ -135,7 +183,9 @@ class Command(BaseCommand):
         self._print_nessie_identities(company, lenders, with_nessie)
         self._print_summary(stats, with_nessie)
         self.stdout.write("\nUnderwriting scenarios")
-        for assessment in assessments:
+        for assessment in assessments.values():
+            if not assessment.invoice.demo_scenario:
+                continue
             self.stdout.write(
                 f"  {assessment.invoice.demo_scenario:<22} "
                 f"{assessment.decision:<8} rating={assessment.rating}"
@@ -163,7 +213,11 @@ class Command(BaseCommand):
         return [
             Lender.objects.update_or_create(
                 name=identity["name"],
-                defaults={"risk_profile": identity["risk_profile"], "is_verified": True},
+                defaults={
+                    "risk_profile": identity["risk_profile"],
+                    "is_verified": True,
+                    "available_capital": _random_amount(low=2_000_000, high=6_000_000),
+                },
             )[0]
             for identity in LENDER_IDENTITIES.values()
         ]
@@ -354,7 +408,151 @@ class Command(BaseCommand):
                     demo_scenario=scenario,
                 )
             )
+
+        target_count = random.randint(45, 65)
+        for index in range(len(invoices) + 1, target_count + 1):
+            debtor = random.choice(clients)
+            amount = _random_amount()
+            term = random.choice(INVOICE_TERMS_DAYS)
+            invoices.append(
+                Invoice.objects.create(
+                    company=company,
+                    debtor_client=debtor,
+                    amount=amount,
+                    outstanding_balance=amount,
+                    issue_date=today - timedelta(days=random.randint(5, 45)),
+                    due_date=today + timedelta(days=term),
+                    status=Invoice.Status.PENDING,
+                    cfdi_uuid=f"10000000-0000-4000-8000-{index:012d}",
+                    issuer_rfc=company.rfc,
+                    receiver_rfc=debtor.rfc,
+                    currency="MXN",
+                    payment_method="PPD",
+                    sat_status="vigente",
+                    sat_verified_at=timezone.now(),
+                    xml_hash=f"{index + 1000:064x}",
+                    has_delivery_evidence=True,
+                )
+            )
         return invoices
+
+    def _seed_financings(self, invoices, assessments):
+        """
+        Marks a chunk of freshly-seeded invoices as already financed: runs
+        the real pricing pipeline, persists all 3 offers exactly like
+        POST /api/invoices/{id}/offers/ does, then accepts the best one,
+        with accepted_at spread over the trailing ~5 months so the
+        Financiadora dashboard's capital-history chart has real
+        multi-month data instead of everything landing in one bucket.
+        Without this, the Financiadora role's "Financiamientos" page and
+        portfolio dashboard — which read real accepted Offers, not mock
+        data — have nothing to show until a real user clicks through the
+        accept flow at least once.
+        """
+        candidates = [
+            invoice
+            for invoice in invoices
+            if assessments[invoice.pk].decision == "APPROVE"
+        ]
+        sample_size = min(len(candidates), random.randint(12, 18))
+        if sample_size < 3:
+            return []
+
+        today = timezone.now()
+        financed = []
+
+        for invoice in random.sample(candidates, sample_size):
+            assessment = assessments[invoice.pk]
+            ranked = rank_offers(invoice, assessment)
+            rates = [Decimal(str(quote["rate"])) for quote in ranked]
+            advances = [Decimal(str(quote["advance_percentage"])) for quote in ranked]
+            portfolio_offer = None
+
+            for rank, quote in enumerate(ranked, start=1):
+                lender_data = quote["lender"]
+                lender, _ = Lender.objects.update_or_create(
+                    pk=lender_data["id"],
+                    defaults={
+                        "name": lender_data["name"],
+                        "risk_profile": lender_data["risk_profile"],
+                        "is_verified": True,
+                    },
+                )
+                rate = Decimal(str(quote["rate"]))
+                advance = Decimal(str(quote["advance_percentage"]))
+                if rank == 1:
+                    category = "best"
+                elif rate == min(rates):
+                    category = "lowest_rate"
+                elif advance == max(advances):
+                    category = "highest_advance"
+                else:
+                    category = "fastest"
+                financing_cost = Decimal(str(quote["financing_cost"]))
+
+                offer, _ = Offer.objects.update_or_create(
+                    invoice=invoice,
+                    lender=lender,
+                    defaults={
+                        "advance_percentage": advance,
+                        "rate": rate,
+                        "risk_assessment": assessment,
+                        "net_amount": Decimal(str(quote["net_amount"])),
+                        "financing_cost": financing_cost,
+                        "funding_time": FUNDING_TIMES[lender.risk_profile],
+                        "category": category,
+                        "rank": rank,
+                        "expires_at": today + timedelta(hours=24),
+                    },
+                )
+                if lender.pk == LENDER_IDENTITIES["conservative"]["id"]:
+                    portfolio_offer = offer
+
+            portfolio_offer.is_accepted = True
+            # Spread over ~5 months so the capital-history chart has real
+            # multi-month buckets instead of everything landing this week.
+            portfolio_offer.accepted_at = today - timedelta(days=random.randint(3, 150))
+            portfolio_offer.save(update_fields=["is_accepted", "accepted_at"])
+
+            # Mix of "paid" (fully settled — realized return) and "funded"
+            # (still active) — exercises both status buckets on the
+            # Financing page and the portfolio's active-vs-completed split.
+            invoice.status = (
+                Invoice.Status.PAID if random.random() < 0.4 else Invoice.Status.FUNDED
+            )
+            invoice.save(update_fields=["status"])
+            financed.append(invoice)
+
+        return financed
+
+    def _seed_publications(self, company, invoices):
+        """
+        Publishes most of the remaining (not already financed) pending
+        invoices as real publicaciones (InvoiceBatch — 1 to 4 invoices
+        each), so the Financiadora Marketplace has real opportunities out
+        of the box. A minority are deliberately left unpublished so the
+        empresa's own Facturas page still shows a genuine "No aplica"
+        bucket alongside "Publicadas".
+        """
+        pool = list(invoices)
+        random.shuffle(pool)
+        to_publish = pool[: int(len(pool) * 0.8)]
+
+        published_batches = 0
+        index = 0
+        while index < len(to_publish):
+            size = random.choice([1, 1, 2, 2, 3, 4])
+            chunk = to_publish[index : index + size]
+            index += size
+            if not chunk:
+                continue
+            batch = InvoiceBatch.objects.create(company=company)
+            Invoice.objects.filter(pk__in=[invoice.pk for invoice in chunk]).update(
+                batch=batch, status=Invoice.Status.IN_AUCTION
+            )
+            published_batches += 1
+
+        return published_batches
 
     def _print_nessie_identities(self, company, lenders, with_nessie):
         if not with_nessie:

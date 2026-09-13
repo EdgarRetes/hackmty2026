@@ -82,18 +82,20 @@ def invoice_risk_assessment(request, invoice_id):
 @api_view(["GET", "POST"])
 def invoice_batch_list(request):
     """
-    POST publishes several of the empresa's own pending invoices together
-    as one batch (a package a financiadora can fund as a whole). GET
-    lists every batch published so far. See API_CONTRACT.md.
+    POST publishes one or more of the empresa's own pending invoices
+    together as one "publicación" (a package a financiadora can browse
+    and fund as a whole — a single invoice is just a publication of
+    size 1). GET lists every publication published so far.
+    See API_CONTRACT.md.
     """
     if request.method == "GET":
         batches = _batch_queryset().order_by("-created_at")
         return Response(InvoiceBatchSerializer(batches, many=True).data)
 
     invoice_ids = request.data.get("invoice_ids") or []
-    if not isinstance(invoice_ids, list) or len(invoice_ids) < 2:
+    if not isinstance(invoice_ids, list) or len(invoice_ids) < 1:
         return Response(
-            {"detail": "invoice_ids must be a list of at least 2 invoice ids."},
+            {"detail": "invoice_ids must be a list of at least 1 invoice id."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

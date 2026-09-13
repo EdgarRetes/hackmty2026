@@ -4,7 +4,8 @@ export type IconName =
   | "home" | "invoice" | "grid" | "cube" | "transfer" | "settings"
   | "help" | "search" | "bell" | "chevron" | "calendar" | "check"
   | "compare" | "star" | "coins" | "bolt" | "clock" | "bars" | "arrow"
-  | "chevronLeft" | "chevronRight";
+  | "chevronLeft" | "chevronRight" | "briefcase" | "wallet" | "percent" | "shield"
+  | "upload" | "camera" | "building";
 
 const paths: Record<IconName, React.ReactNode> = {
   home: <><path d="m3 11 9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></>,
@@ -23,6 +24,13 @@ const paths: Record<IconName, React.ReactNode> = {
   bolt: <path d="M13 2 5 14h7l-1 8 8-12h-7z"/>, clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   bars: <><path d="M5 20v-6h3v6zM11 20V9h3v11zM17 20V4h3v16z"/></>, arrow: <path d="M5 12h14m-4-4 4 4-4 4"/>,
   chevronLeft: <path d="m15 18-6-6 6-6"/>, chevronRight: <path d="m9 18 6-6-6-6"/>,
+  briefcase: <><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V4h8v3M3 12h18M10 12v2h4v-2"/></>,
+  wallet: <><path d="M4 6h15a2 2 0 0 1 2 2v11H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v3"/><path d="M16 11h5v4h-5a2 2 0 0 1 0-4Z"/></>,
+  percent: <><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/><path d="m19 5-14 14"/></>,
+  shield: <><path d="M12 3 4 6v5c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></>,
+  upload: <><path d="M12 15V4m0 0 4 4m-4-4L8 8"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></>,
+  camera: <><path d="M4 8h3l1.5-2h7L17 8h3v11H4Z"/><circle cx="12" cy="13.5" r="3.2"/></>,
+  building: <><path d="M4 21V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v17"/><path d="M14 9h5a1 1 0 0 1 1 1v11M8 7h2m-2 4h2m-2 4h2m4-8h2m-2 4h2"/></>,
 };
 
 export function Icon({ name, size = 22, className = "", ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {
