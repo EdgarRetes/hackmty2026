@@ -3,14 +3,21 @@ import statistics
 from datetime import timedelta
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from core.models import UserProfile
 from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
 from mercado.matching_engine import LENDER_IDENTITIES
+
+DEMO_PROFILES = {
+    "empresa": {"username": "lucia.martinez", "first_name": "Lucía", "last_name": "Martínez"},
+    "financiadora": {"username": "carlos.mendoza", "first_name": "Carlos", "last_name": "Mendoza"},
+}
 
 DEMO_COMPANY = {
     "rfc": "GIA850101AB1",
@@ -113,6 +120,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             company = self._seed_company()
             lenders = self._seed_lenders()
+            self._seed_profiles(company, lenders)
 
             if with_nessie:
                 self._provision_nessie_identity(nessie, company)
@@ -137,9 +145,9 @@ class Command(BaseCommand):
         total_payments = sum(data["count"] for data in stats.values())
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nSeeded 1 company, {len(lenders)} lenders, {len(clients)} "
-                f"debtor clients, {total_payments} payment history records, "
-                f"{invoice_count} pending invoices."
+                f"\nSeeded 1 company, {len(lenders)} lenders, 2 role profiles, "
+                f"{len(clients)} debtor clients, {total_payments} payment "
+                f"history records, {invoice_count} pending invoices."
                 + (" (with real Nessie records)" if with_nessie else "")
                 + "\n"
             )
@@ -165,6 +173,51 @@ class Command(BaseCommand):
             )[0]
             for identity in LENDER_IDENTITIES.values()
         ]
+
+    def _seed_profiles(self, company, lenders):
+        """
+        One demo Django User + UserProfile per role, so the frontend's
+        role switcher (GET /api/profiles/) reads real identities instead
+        of a hardcoded name. Idempotent — reruns just update the same two
+        users rather than creating duplicates.
+        """
+        User = get_user_model()
+
+        empresa_info = DEMO_PROFILES["empresa"]
+        empresa_user, _ = User.objects.update_or_create(
+            username=empresa_info["username"],
+            defaults={
+                "first_name": empresa_info["first_name"],
+                "last_name": empresa_info["last_name"],
+            },
+        )
+        UserProfile.objects.update_or_create(
+            user=empresa_user,
+            defaults={
+                "role": UserProfile.Role.EMPRESA,
+                "display_name": f"{empresa_info['first_name']} {empresa_info['last_name']}",
+                "company": company,
+                "lender": None,
+            },
+        )
+
+        financiadora_info = DEMO_PROFILES["financiadora"]
+        financiadora_user, _ = User.objects.update_or_create(
+            username=financiadora_info["username"],
+            defaults={
+                "first_name": financiadora_info["first_name"],
+                "last_name": financiadora_info["last_name"],
+            },
+        )
+        UserProfile.objects.update_or_create(
+            user=financiadora_user,
+            defaults={
+                "role": UserProfile.Role.FINANCIADORA,
+                "display_name": f"{financiadora_info['first_name']} {financiadora_info['last_name']}",
+                "company": None,
+                "lender": lenders[0] if lenders else None,
+            },
+        )
 
     def _provision_nessie_identity(self, nessie, entity):
         """
