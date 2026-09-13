@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import UserProfile
+from core.risk_engine import assess_invoice
 from empresas.models import Company, DebtorClient, PaymentHistory
 from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
@@ -23,16 +24,21 @@ DEMO_COMPANY = {
     "rfc": "GIA850101AB1",
     "legal_name": "Grupo Industrial Azteca S.A. de C.V.",
     "is_verified": True,
+    "scian_sector": "333",
+    "years_operating": 12,
+    "annual_revenue": Decimal("12000000.00"),
+    "dispute_rate": Decimal("0.01000"),
+    "dilution_rate": Decimal("0.01000"),
+    "data_source": "INEGI DENUE / mock hackathon",
+    "source_reference": "https://www.inegi.org.mx/servicios/api_denue.html",
 }
 
-# (name, archetype) — archetype drives the payment-history distribution below.
+# Deterministic synthetic snapshots shaped like DENUE and bureau inputs.
 DEBTOR_CLIENTS = [
-    ("Comercializadora del Norte", "reliable"),
-    ("Ferretería La Unión", "reliable"),
-    ("Grupo Constructor Peninsular", "irregular"),
-    ("Materiales Industriales MTY", "irregular"),
-    ("Farmacias San Rafael", "delinquent"),
-    ("Autotransportes del Golfo", "new"),
+    {"name": "Comercializadora del Norte", "archetype": "reliable", "rfc": "CDN010101AA1", "scian_sector": "461", "employee_band": "51-100", "years_operating": 14, "bureau_score": 740, "current_ratio": Decimal("1.90"), "debt_to_ebitda": Decimal("1.80"), "operating_margin": Decimal("0.13000"), "history": [0, 0, 1, 0, 2, 0]},
+    {"name": "Farmacias San Rafael", "archetype": "delinquent", "rfc": "FSR010101AA2", "scian_sector": "464", "employee_band": "101-250", "years_operating": 6, "bureau_score": 430, "current_ratio": Decimal("0.60"), "debt_to_ebitda": Decimal("7.00"), "operating_margin": Decimal("-0.05000"), "has_legal_events": True, "history": [60, 75, 90, 95, 110, 120], "defaults": {3, 4, 5}},
+    {"name": "Manufacturas Regiomontanas", "archetype": "reliable", "rfc": "MRE010101AA3", "scian_sector": "333", "employee_band": "31-50", "years_operating": 9, "bureau_score": 710, "current_ratio": Decimal("1.60"), "debt_to_ebitda": Decimal("2.30"), "operating_margin": Decimal("0.10000"), "history": [0, 0, 0, 1, 0]},
+    {"name": "Logística Nueva Era", "archetype": "new", "rfc": "LNE010101AA4", "scian_sector": "484", "employee_band": "6-10", "years_operating": 1, "bureau_score": None, "current_ratio": Decimal("1.20"), "debt_to_ebitda": Decimal("3.00"), "operating_margin": Decimal("0.06000"), "history": []},
 ]
 
 INVOICE_TERMS_DAYS = (30, 45, 60)
@@ -110,6 +116,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        random.seed(20260912)
         with_nessie = options["with_nessie"]
         # Imported lazily so `core.nessie_client` (and its `requests`
         # dependency) is only ever touched when actually needed.
@@ -140,7 +147,9 @@ class Command(BaseCommand):
                     nessie.delete_deposit(deposit_id)
 
             stats = self._seed_payment_history(clients, company, nessie if with_nessie else None)
-            invoice_count = self._seed_invoices(company, clients)
+            invoices = self._seed_invoices(company, clients)
+            assessments = [assess_invoice(invoice) for invoice in invoices]
+            invoice_count = len(invoices)
 
         total_payments = sum(data["count"] for data in stats.values())
         self.stdout.write(
@@ -154,6 +163,12 @@ class Command(BaseCommand):
         )
         self._print_nessie_identities(company, lenders, with_nessie)
         self._print_summary(stats, with_nessie)
+        self.stdout.write("\nUnderwriting scenarios")
+        for assessment in assessments:
+            self.stdout.write(
+                f"  {assessment.invoice.demo_scenario:<22} "
+                f"{assessment.decision:<8} rating={assessment.rating}"
+            )
 
     def _seed_company(self):
         company, _ = Company.objects.update_or_create(
@@ -161,6 +176,14 @@ class Command(BaseCommand):
             defaults={
                 "legal_name": DEMO_COMPANY["legal_name"],
                 "is_verified": DEMO_COMPANY["is_verified"],
+                "scian_sector": DEMO_COMPANY["scian_sector"],
+                "years_operating": DEMO_COMPANY["years_operating"],
+                "annual_revenue": DEMO_COMPANY["annual_revenue"],
+                "dispute_rate": DEMO_COMPANY["dispute_rate"],
+                "dilution_rate": DEMO_COMPANY["dilution_rate"],
+                "data_source": DEMO_COMPANY["data_source"],
+                "source_reference": DEMO_COMPANY["source_reference"],
+                "data_as_of": timezone.localdate(),
             },
         )
         return company
@@ -258,28 +281,50 @@ class Command(BaseCommand):
         # separately or every re-seed leaves behind empty, orphaned batches.
         InvoiceBatch.objects.filter(company=company).delete()
 
-        return [
-            DebtorClient.objects.create(company=company, name=name, archetype=archetype)
-            for name, archetype in DEBTOR_CLIENTS
-        ]
+        clients = []
+        for spec in DEBTOR_CLIENTS:
+            values = {
+                key: value
+                for key, value in spec.items()
+                if key not in {"history", "defaults"}
+            }
+            values.update(
+                company=company,
+                data_source="INEGI DENUE / bureau mock hackathon",
+                source_reference="https://www.inegi.org.mx/servicios/api_denue.html",
+                data_as_of=timezone.localdate(),
+            )
+            clients.append(DebtorClient.objects.create(**values))
+        return clients
 
     def _seed_payment_history(self, clients, company, nessie):
         today = timezone.now().date()
         stats = {}
+        specs_by_rfc = {spec["rfc"]: spec for spec in DEBTOR_CLIENTS}
         for client in clients:
-            n = _payment_count_for(client.archetype)
-            days_late_values = [_days_late_for(client.archetype) for _ in range(n)]
-            paid_at_values = _paid_at_sequence(n, today)
-            amounts = [_random_amount() for _ in range(n)]
+            spec = specs_by_rfc[client.rfc]
+            days_late_values = list(spec["history"])
+            n = len(days_late_values)
+            due_at_values = _paid_at_sequence(n, today, most_recent_offset=45)
+            issued_at_values = [due_at - timedelta(days=30) for due_at in due_at_values]
+            paid_at_values = [due_at + timedelta(days=dpd) for due_at, dpd in zip(due_at_values, days_late_values)]
+            amounts = [Decimal("100000.00") for _ in range(n)]
+            defaults = spec.get("defaults", set())
 
             records = [
                 PaymentHistory(
                     debtor_client=client,
                     amount=amount,
+                    amount_paid=amount if index not in defaults else Decimal("0.00"),
                     days_late=days_late,
+                    issued_at=issued_at,
+                    due_at=due_at,
                     paid_at=paid_at,
+                    is_default=index in defaults,
                 )
-                for amount, days_late, paid_at in zip(amounts, days_late_values, paid_at_values)
+                for index, (amount, days_late, issued_at, due_at, paid_at) in enumerate(
+                    zip(amounts, days_late_values, issued_at_values, due_at_values, paid_at_values)
+                )
             ]
 
             nessie_linked = 0
@@ -303,26 +348,40 @@ class Command(BaseCommand):
         return stats
 
     def _seed_invoices(self, company, clients):
-        count = random.randint(8, 15)
         today = timezone.now().date()
-
+        client_by_rfc = {client.rfc: client for client in clients}
+        scenarios = [
+            ("approved", "CDN010101AA1", Decimal("200000.00"), 45, "vigente", False),
+            ("risk_rejected", "FSR010101AA2", Decimal("350000.00"), 60, "vigente", False),
+            ("eligibility_rejected", "MRE010101AA3", Decimal("180000.00"), 45, "cancelado", False),
+            ("manual_review", "LNE010101AA4", Decimal("90000.00"), 30, "vigente", False),
+        ]
         invoices = []
-        for _ in range(count):
-            client = random.choice(clients)
-            issue_date = today - timedelta(days=random.randint(5, 45))
-            due_date = issue_date + timedelta(days=random.choice(INVOICE_TERMS_DAYS))
+        for index, (scenario, debtor_rfc, amount, term, sat_status, assigned) in enumerate(scenarios, start=1):
+            debtor = client_by_rfc[debtor_rfc]
             invoices.append(
-                Invoice(
+                Invoice.objects.create(
                     company=company,
-                    debtor_client=client,
-                    amount=_random_amount(),
-                    issue_date=issue_date,
-                    due_date=due_date,
+                    debtor_client=debtor,
+                    amount=amount,
+                    outstanding_balance=amount,
+                    issue_date=today - timedelta(days=5),
+                    due_date=today + timedelta(days=term),
                     status=Invoice.Status.PENDING,
+                    cfdi_uuid=f"00000000-0000-4000-8000-{index:012d}",
+                    issuer_rfc=company.rfc,
+                    receiver_rfc=debtor.rfc,
+                    currency="MXN",
+                    payment_method="PPD",
+                    sat_status=sat_status,
+                    sat_verified_at=timezone.now(),
+                    xml_hash=f"{index:064x}",
+                    is_previously_assigned=assigned,
+                    has_delivery_evidence=True,
+                    demo_scenario=scenario,
                 )
             )
-        Invoice.objects.bulk_create(invoices)
-        return count
+        return invoices
 
     def _print_nessie_identities(self, company, lenders, with_nessie):
         if not with_nessie:
