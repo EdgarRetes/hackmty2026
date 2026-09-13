@@ -9,6 +9,7 @@ urlpatterns = [
         views.invoice_risk_assessment,
         name="invoice-risk-assessment",
     ),
+    path("invoices/assistant/", views.invoice_assistant, name="invoice-assistant"),
     path("invoice-batches/", views.invoice_batch_list, name="invoice-batch-list"),
     path(
         "invoice-batches/<int:batch_id>/",

@@ -5,7 +5,7 @@ export type IconName =
   | "help" | "search" | "bell" | "chevron" | "calendar" | "check"
   | "compare" | "star" | "coins" | "bolt" | "clock" | "bars" | "arrow"
   | "chevronLeft" | "chevronRight" | "briefcase" | "wallet" | "percent" | "shield"
-  | "upload" | "camera" | "building";
+  | "upload" | "camera" | "building" | "sparkles" | "send";
 
 const paths: Record<IconName, React.ReactNode> = {
   home: <><path d="m3 11 9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></>,
@@ -31,6 +31,8 @@ const paths: Record<IconName, React.ReactNode> = {
   upload: <><path d="M12 15V4m0 0 4 4m-4-4L8 8"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></>,
   camera: <><path d="M4 8h3l1.5-2h7L17 8h3v11H4Z"/><circle cx="12" cy="13.5" r="3.2"/></>,
   building: <><path d="M4 21V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v17"/><path d="M14 9h5a1 1 0 0 1 1 1v11M8 7h2m-2 4h2m-2 4h2m4-8h2m-2 4h2"/></>,
+  sparkles: <><path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6Z"/><path d="M19 15.5 19.8 18l2.2.8-2.2.8L19 22l-.8-2.4-2.2-.8 2.2-.8Z"/></>,
+  send: <path d="m4 20 17-8L4 4l2 7 9 1-9 1Z"/>,
 };
 
 export function Icon({ name, size = 22, className = "", ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {

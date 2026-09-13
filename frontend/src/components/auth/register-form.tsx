@@ -150,7 +150,6 @@ function SmeStepOne() {
       <TextField label="Años operando" type="number" placeholder="5"/>
       <SelectField label="Giro / industria" options={SECTORS}/>
       <TextField label="Número de empleados" type="number" placeholder="20"/>
-      <TextField label="Principales clientes" placeholder="Separados por coma"/>
     </Section>
   </div>;
 }

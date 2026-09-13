@@ -4,7 +4,9 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from core.risk_engine import assess_invoice
+from empresas.models import Company
 
+from . import assistant
 from .models import Invoice, InvoiceBatch
 from .serializers import InvoiceBatchSerializer, InvoiceSerializer, RiskAssessmentSerializer
 
@@ -44,6 +46,35 @@ def invoice_list(request):
     """
     invoices = _invoice_queryset().order_by("-issue_date", "-id")
     return Response(InvoiceSerializer(invoices, many=True).data)
+
+
+@api_view(["POST"])
+def invoice_assistant(request):
+    """
+    Chat turn with the Gemini-powered assistant that recommends which
+    pending invoices to bundle into a publication. Body: {"message": str,
+    "history": [{"role": "user"|"model", "text": str}, ...]}. See
+    facturas/assistant.py and API_CONTRACT.md.
+    """
+    message = (request.data.get("message") or "").strip()
+    if not message:
+        return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    company = Company.objects.order_by("id").first()
+    if company is None:
+        return Response({"detail": "No company configured."}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        reply = assistant.chat(company, message, request.data.get("history"))
+    except RuntimeError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception:
+        return Response(
+            {"detail": "El asistente no está disponible en este momento."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response({"reply": reply})
 
 
 @api_view(["GET"])

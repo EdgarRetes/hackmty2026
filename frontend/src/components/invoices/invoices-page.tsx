@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { InvoiceListItem, InvoiceUiStatus } from "@/lib/invoices";
 import { createPublication } from "@/lib/publications";
 import { Icon } from "../icons";
+import { InvoiceAssistantPanel } from "./invoice-assistant-panel";
 import { InvoiceSummaryCard } from "./invoice-summary-card";
 import { InvoiceTable } from "./invoice-table";
 
@@ -61,6 +62,7 @@ export function InvoicesPageContent({ invoices }: { invoices: InvoiceListItem[] 
     {selected.length > 0 && <section className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#d1baff] bg-[#f5efff] px-4 py-3"><span className="text-sm font-semibold text-navy">{selected.length} factura{selected.length === 1 ? "" : "s"} seleccionada{selected.length === 1 ? "" : "s"}</span><span className="text-xs text-[#52688f]">{selected.length === 1 ? "Se publicará como una oportunidad individual en el marketplace." : "Se publicarán juntas: una financiadora puede pagar todas y quedarse con el rendimiento del conjunto."}</span><button onClick={handlePublish} disabled={publishing} className="ml-auto flex h-10 items-center gap-2 rounded-lg bg-[#6330e8] px-5 text-sm font-semibold text-white transition hover:bg-[#5827c9] disabled:cursor-not-allowed disabled:opacity-50">{publishing ? "Publicando..." : "Publicar"}</button><button onClick={() => setSelected([])} className="text-xs font-medium text-[#52688f] hover:text-navy">Limpiar selección</button></section>}
     {publishError && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{publishError}</p>}
     <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,31,68,.025)]">{visible.length ? <InvoiceTable invoices={visible} selectable selectedIds={selected} onToggle={toggleSelected}/> : <div className="px-6 py-16 text-center"><h2 className="text-lg font-semibold text-navy">No encontramos facturas disponibles.</h2><p className="mt-2 text-sm text-[#52688f]">Prueba cambiando la búsqueda o el filtro seleccionado.</p></div>}<footer className="flex min-h-16 flex-wrap items-center justify-between gap-4 border-t border-slate-200 px-5 py-3 text-xs text-[#52688f]"><span>Mostrando {start}–{end} de {filtered.length} facturas</span><div className="flex items-center gap-1"><PageButton label="Anterior" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹</PageButton>{Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => <PageButton key={number} label={`Página ${number}`} active={number === safePage} onClick={() => setPage(number)}>{number}</PageButton>)}<PageButton label="Siguiente" disabled={safePage === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>›</PageButton></div></footer></section>
+    <InvoiceAssistantPanel/>
   </div>;
 }
 
