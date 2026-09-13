@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ROLE_CONFIG } from "@/lib/session";
 import { Icon, type IconName } from "./icons";
@@ -62,5 +62,15 @@ export function TopBar({ collapsed, experience = "sme" }: { collapsed: boolean; 
 
 export function AppShell({ children, activeSection = "Ofertas", experience = "sme" }: { children: React.ReactNode; activeSection?: string; experience?: Experience }) {
   const [collapsed, setCollapsed] = useState(false);
-  return <div className="min-h-screen bg-[#fbfcfe]"><AppSidebar activeSection={activeSection} collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} experience={experience}/><TopBar collapsed={collapsed} experience={experience}/><main className={`px-5 py-6 transition-[margin-left] duration-[250ms] ease-in-out md:px-7 ${collapsed ? "lg:ml-20" : "lg:ml-[226px]"}`}>{children}</main></div>;
+  const pathname = usePathname();
+  const backHref = secondaryPageBackHref(pathname);
+  return <div className="min-h-screen bg-[#fbfcfe]"><AppSidebar activeSection={activeSection} collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} experience={experience}/><TopBar collapsed={collapsed} experience={experience}/><main className={`px-5 py-6 transition-[margin-left] duration-[250ms] ease-in-out md:px-7 ${collapsed ? "lg:ml-20" : "lg:ml-[226px]"}`}>{backHref && <Link href={backHref} aria-label="Volver" className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-navy transition hover:bg-slate-100"><Icon name="chevronLeft" size={22}/></Link>}{children}</main></div>;
+}
+
+function secondaryPageBackHref(pathname: string): string | null {
+  if (pathname === "/" || pathname === "/financier" || pathname === "/invoices" || pathname === "/invoices/package" || pathname === "/marketplace" || pathname.startsWith("/marketplace/")) return null;
+  if (pathname.startsWith("/publications/")) return "/publications";
+  if (pathname === "/publications" || pathname === "/financing" || pathname.startsWith("/offers/")) return "/";
+  if (pathname === "/portfolio" || pathname === "/financier/offers") return "/financier";
+  return null;
 }

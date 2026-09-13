@@ -1,0 +1,11 @@
+import Link from "next/link";
+import { AppShell } from "@/components/app-shell";
+import { Icon } from "@/components/icons";
+import { PageBackLink } from "@/components/page-back-link";
+
+export default async function OfferSuccessPage({ params, searchParams }: PageProps<"/marketplace/[batchId]/offer-success">) {
+  const { batchId } = await params;
+  const { transaction, advance, return: returnRate } = await searchParams;
+
+  return <AppShell activeSection="Marketplace" experience="financier"><section className="mx-auto max-w-[760px] rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-[0_16px_45px_rgba(15,31,68,.06)] sm:px-12"><div className="flex justify-start"><PageBackLink href={`/marketplace/${encodeURIComponent(batchId)}`} label="Volver a la oportunidad"/></div><span className="mx-auto mt-2 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600"><Icon name="check" size={36}/></span><h1 className="mt-5 text-3xl font-bold tracking-[-.04em] text-navy">Oferta preparada con éxito</h1><p className="mx-auto mt-3 max-w-[520px] text-[16px] leading-7 text-[#52688f]">Tu propuesta personalizada para la publicación #{batchId} está lista. Te informaremos del proceso y de cualquier actualización cuando la integración de ofertas esté habilitada.</p>{typeof advance === "string" && typeof returnRate === "string" && <p className="mt-5 rounded-lg bg-[#f1f6ff] px-4 py-3 text-sm text-[#38517d]">Tu propuesta: <strong className="text-navy">{advance}% de anticipo</strong> y <strong className="text-navy">{returnRate}% de retorno</strong>.</p>}{typeof transaction === "string" && <p className="mt-3 rounded-lg bg-[#f1f6ff] px-4 py-3 text-sm text-[#38517d]">Referencia de operación: <strong className="text-navy">{transaction}</strong></p>}<div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row"><Link href="/marketplace" className="inline-flex h-11 items-center justify-center rounded-xl bg-navy px-5 text-sm font-semibold text-white transition hover:bg-[#17315f]">Volver al Marketplace</Link><Link href="/financier/offers" className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 px-5 text-sm font-semibold text-navy transition hover:bg-slate-50">Ver mis ofertas</Link></div></section></AppShell>;
+}

@@ -16,7 +16,7 @@ export function FinancierOffersPageContent({ data }: { data: FinancierOffersData
   const filtered = useMemo(() => data.offers.filter((offer) => {
     const needle = query.trim().toLocaleLowerCase("es-MX");
     return (!needle || offer.invoiceFolio.toLocaleLowerCase("es-MX").includes(needle) || offer.debtor.toLocaleLowerCase("es-MX").includes(needle)) && (filter === "all" || offer.status === filter);
-  }).sort((a, b) => b.offeredAt.localeCompare(a.offeredAt)), [data.offers, filter, query]);
+  }).sort((a, b) => (b.offeredAt ?? "").localeCompare(a.offeredAt ?? "")), [data.offers, filter, query]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -40,4 +40,4 @@ function StatusBadge({ status }: { status: FinancierOfferStatus }) {
   return <span className={`inline-flex rounded-lg px-3 py-1.5 text-xs ${styles[status]}`}>{labels[status]}</span>;
 }
 
-function formatDate(value: string): string { return new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value)); }
+function formatDate(value: string | null): string { return value ? new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value)) : "—"; }
