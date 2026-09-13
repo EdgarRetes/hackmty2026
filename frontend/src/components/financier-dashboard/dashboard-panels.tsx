@@ -1,0 +1,23 @@
+import Link from "next/link";
+import { type MarketplaceOpportunity } from "@/lib/marketplace";
+import { Icon } from "../icons";
+
+export function CapitalChart() {
+  return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,31,68,.025)]"><PanelHeading title="Capital financiado" subtitle="Evolución de tu portafolio en los últimos meses"/><div className="relative mt-5 h-[205px] overflow-hidden border-b border-l border-slate-200 bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_49px,#e8eef7_50px)]"><div className="absolute inset-0 flex items-center justify-center"><Empty label="Historial de capital no disponible"/></div></div></section>;
+}
+
+export function Opportunities({ opportunities }: { opportunities: MarketplaceOpportunity[] }) {
+  return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,31,68,.025)]"><div className="flex items-start justify-between gap-3"><PanelHeading title="Oportunidades para ti" subtitle="Facturas disponibles en el Marketplace"/><Link href="/marketplace" className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-[#f3f6fb] px-4 text-xs font-semibold text-[#075ad9]">Ver todas <Icon name="arrow" size={16}/></Link></div><div className="mt-3 divide-y divide-slate-100">{opportunities.length ? opportunities.map((item) => <article key={item.id} className="grid grid-cols-[46px_1fr_auto] items-center gap-3 py-3"><span className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-xs font-bold text-[#1d54b7]">{item.debtorInitials}</span><div className="min-w-0"><strong className="block truncate text-sm text-navy">{item.debtor}</strong><span className="mt-1 block text-xs text-[#1d54b7]">{item.formattedAmount}</span><span className="mt-1 block text-[11px] text-[#6b7fa5]">Riesgo — · Retorno — · Historial —</span></div><span className="rounded-lg border border-[#dce7fa] bg-[#f7faff] px-3 py-2 text-xs font-semibold text-[#075ad9]" title="El backend aún no expone una ruta de detalle">Ver oportunidad</span></article>) : <Empty label="No hay oportunidades disponibles"/>}</div></section>;
+}
+
+export function RecentOperations() {
+  return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,31,68,.025)]"><div className="flex items-start justify-between gap-3"><PanelHeading title="Operaciones recientes" subtitle="Tus últimos financiamientos y su estado"/><Link href="/financier#portfolio" className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-[#f3f6fb] px-4 text-xs font-semibold text-[#075ad9]">Ver portafolio <Icon name="arrow" size={16}/></Link></div><div className="mt-4 overflow-hidden rounded-lg border border-slate-100"><div className="grid grid-cols-6 bg-[#f3f6fb] px-3 py-2 text-[11px] text-[#38517d]"><span>Factura</span><span>Deudor</span><span>Capital</span><span>Plazo</span><span>Estado</span><span>Retorno</span></div><div className="py-12"><Empty label="No hay operaciones disponibles para esta cuenta"/></div></div></section>;
+}
+
+export function PortfolioDistribution() {
+  const risks = [["Riesgo bajo", "bg-emerald-500"], ["Riesgo medio", "bg-amber-400"], ["Riesgo alto", "bg-red-500"]] as const;
+  return <section id="portfolio" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,31,68,.025)]"><PanelHeading title="Distribución de tu portafolio" subtitle="Capital financiado por nivel de riesgo"/><div className="mt-5 flex min-h-[205px] flex-wrap items-center justify-around gap-8"><div className="flex h-44 w-44 items-center justify-center rounded-full bg-[#edf1f6]"><div className="flex h-28 w-28 flex-col items-center justify-center rounded-full bg-white text-xl font-bold text-navy">—<span className="text-xs font-normal text-[#52688f]">MXN</span></div></div><div className="min-w-[210px] space-y-5">{risks.map(([label, color]) => <div key={label} className="grid grid-cols-[14px_1fr_auto] items-center gap-3"><i className={`h-3.5 w-3.5 rounded-full ${color}`}/><span className="text-sm text-navy">{label}</span><strong className="text-sm text-navy">—</strong><span/><span className="text-xs text-[#1d54b7]">— MXN</span></div>)}</div></div></section>;
+}
+
+function PanelHeading({ title, subtitle }: { title: string; subtitle: string }) { return <div><h2 className="text-xl font-bold tracking-[-.025em] text-navy">{title}</h2><p className="mt-0.5 text-xs text-[#1d54b7]">{subtitle}</p></div>; }
+function Empty({ label }: { label: string }) { return <p className="px-4 py-6 text-center text-sm text-[#6b7fa5]">{label}</p>; }

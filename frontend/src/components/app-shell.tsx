@@ -12,8 +12,8 @@ const smePrimary: NavItem[] = [
   { label: "Ofertas", icon: "grid", href: "/publications" }, { label: "Financiamientos", icon: "cube", href: "/financing" },
 ];
 const financierPrimary: NavItem[] = [
-  { label: "Inicio", icon: "home", href: "#" }, { label: "Marketplace", icon: "search", href: "/marketplace" },
-  { label: "Ofertas", icon: "grid", href: "#" }, { label: "Portafolio", icon: "briefcase", href: "#" },
+  { label: "Inicio", icon: "home", href: "/financier" }, { label: "Marketplace", icon: "search", href: "/marketplace" },
+  { label: "Ofertas", icon: "grid", href: "#" }, { label: "Portafolio", icon: "briefcase", href: "/financier#portfolio" },
   { label: "Operaciones", icon: "transfer", href: "#" },
 ];
 const secondary: NavItem[] = [
