@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Isotipo de Factora</title>
+  <defs>
+    <linearGradient id="navy" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14346f"/>
+      <stop offset="1" stop-color="#071d49"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dff875"/>
+      <stop offset="1" stop-color="#bde83d"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#lime)" d="M52 186h408v218c0 32-26 58-58 58H110c-32 0-58-26-58-58V186Z"/>
+  <path fill="url(#navy)" d="M52 116c0-37 30-66 66-66h250v180c-27 29-65 52-113 71-91 36-160 88-203 159V116Z"/>
+  <path fill="url(#navy)" d="M391 51c12 2 23 8 32 17l20 20c10 10 16 22 17 35v45h-69V51Z"/>
+  <path fill="url(#navy)" d="M398 284c-49 39-89 65-132 84-41 19-65 49-71 94h-62c5-73 43-123 107-153 45-21 81-44 124-78l34 53Z"/>
+  <rect width="194" height="38" x="111" y="143" fill="white" rx="19"/>
+  <rect width="124" height="38" x="111" y="218" fill="white" rx="19"/>
+</svg>
