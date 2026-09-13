@@ -55,6 +55,16 @@ def _pending_invoices(company):
     )
 
 
+def _json_safe_quotes(quotes):
+    """
+    rank_offers() includes an internal `annual_rate` Decimal (used only to
+    compute the other, already-stringified fields) that DRF's Response
+    knows how to encode but google-genai's plain json.dumps does not —
+    strip it before handing a quote list back to the model.
+    """
+    return [{key: value for key, value in quote.items() if key != "annual_rate"} for quote in quotes]
+
+
 def _latest_assessment(invoice):
     """
     Reuse the invoice's latest underwriting decision when one already
@@ -131,7 +141,7 @@ def _build_tools(company):
                 "razones": list(assessment.reasons),
                 "advertencias": list(assessment.warnings),
             },
-            "cotizaciones": rank_offers(invoice, assessment),
+            "cotizaciones": _json_safe_quotes(rank_offers(invoice, assessment)),
         }
 
     def simular_paquete(invoice_ids: list[int]) -> dict:
