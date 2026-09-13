@@ -20,6 +20,8 @@ from core.risk_engine import assess_invoice
 from facturas.models import Invoice, RiskAssessment
 from mercado.matching_engine import opportunity_summary, rank_offers
 
+from .services import publish_invoices
+
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
 
 SYSTEM_INSTRUCTION = (
@@ -34,7 +36,12 @@ SYSTEM_INSTRUCTION = (
     "directo, como lo sería un asesor financiero real. Cada factura pasa "
     "primero por un underwriting automático (aprobada/revisión/rechazada); "
     "nunca recomiendes juntar una factura que no esté aprobada, y explica "
-    "la razón si el usuario pregunta por qué una no calificó."
+    "la razón si el usuario pregunta por qué una no calificó. Cuando el "
+    "usuario elija una de tus opciones o te pida explícitamente publicarla "
+    "(por ejemplo \"quiero la opción 1\", \"publícala\", \"hazlo\"), usa la "
+    "herramienta publicar_paquete con esos invoice_id exactos — no le "
+    "pidas que lo haga él mismo, tú puedes publicarla directamente. "
+    "Confirma siempre qué publicaste y con qué facturas."
 )
 
 
@@ -78,11 +85,15 @@ def _latest_assessment(invoice):
     return assessment
 
 
-def _build_tools(company):
+def _build_tools(company, published):
     """
     Closures over `company` so the model never has to supply a company id
     (and can't accidentally query another company's data) — the functions'
     signatures only expose the arguments Gemini should actually decide.
+
+    `published` is a list the publish tool appends to on success, so
+    `chat()` can tell the caller a real publication was created this turn
+    without having to parse it back out of the model's prose reply.
     """
 
     def listar_facturas_disponibles() -> list[dict]:
@@ -213,7 +224,24 @@ def _build_tools(company):
             "mejores_ofertas_por_financiadora": aggregated,
         }
 
-    return [listar_facturas_disponibles, detalle_factura, simular_paquete]
+    def publicar_paquete(invoice_ids: list[int]) -> dict:
+        """Publica de verdad, ahora mismo, una publicación con las facturas indicadas — exactamente lo mismo que si el usuario le diera clic a "Publicar" en la pantalla de Facturas. Úsala solo cuando el usuario haya elegido una opción concreta o pida explícitamente publicar/confirmar. Una vez publicada, la publicación queda visible para las financiadoras y las facturas dejan de estar disponibles para otro paquete.
+
+        Args:
+            invoice_ids: Lista de ids de las facturas a publicar juntas (1 o más).
+        """
+        batch, error = publish_invoices(invoice_ids, company=company)
+        if error:
+            return {"error": error}
+        published.append(batch.id)
+        return {
+            "publicado": True,
+            "batch_id": batch.id,
+            "folio": f"PUB-{batch.id:04d}",
+            "invoice_ids": list(invoice_ids),
+        }
+
+    return [listar_facturas_disponibles, detalle_factura, simular_paquete, publicar_paquete]
 
 
 def chat(company, message, history=None):
@@ -221,6 +249,11 @@ def chat(company, message, history=None):
     One turn of the assistant conversation. `history` is the prior
     turns as [{"role": "user"|"model", "text": str}, ...] — the frontend
     keeps and resends it, so this stays stateless on the backend.
+
+    Returns {"reply": str, "published_batch_id": int | None} — the id is
+    set when the model actually called publicar_paquete successfully
+    during this turn, so the frontend can link to / refresh around it
+    without having to parse the model's prose.
     """
     client = genai.Client(api_key=_key())
 
@@ -232,9 +265,13 @@ def chat(company, message, history=None):
             contents.append(types.Content(role=role, parts=[types.Part(text=text)]))
     contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
 
+    published = []
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
-        tools=_build_tools(company),
+        tools=_build_tools(company, published),
     )
     response = client.models.generate_content(model=MODEL, contents=contents, config=config)
-    return response.text
+    return {
+        "reply": response.text,
+        "published_batch_id": published[-1] if published else None,
+    }

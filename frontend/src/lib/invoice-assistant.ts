@@ -5,7 +5,12 @@ export interface AssistantMessage {
   text: string;
 }
 
-export async function sendAssistantMessage(message: string, history: AssistantMessage[]): Promise<string> {
+export interface AssistantReply {
+  reply: string;
+  publishedBatchId: number | null;
+}
+
+export async function sendAssistantMessage(message: string, history: AssistantMessage[]): Promise<AssistantReply> {
   if (!API_URL) throw new Error("NEXT_PUBLIC_API_URL is not set");
 
   const response = await fetch(`${API_URL}/api/invoices/assistant/`, {
@@ -25,5 +30,6 @@ export async function sendAssistantMessage(message: string, history: AssistantMe
     throw new Error(detail);
   }
 
-  return (JSON.parse(body) as { reply: string }).reply;
+  const parsed = JSON.parse(body) as { reply: string; published_batch_id: number | null };
+  return { reply: parsed.reply, publishedBatchId: parsed.published_batch_id };
 }

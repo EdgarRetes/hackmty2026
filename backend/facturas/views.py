@@ -9,6 +9,7 @@ from empresas.models import Company
 from . import assistant
 from .models import Invoice, InvoiceBatch
 from .serializers import InvoiceBatchSerializer, InvoiceSerializer, RiskAssessmentSerializer
+from .services import publish_invoices
 
 
 def _invoice_queryset():
@@ -65,7 +66,7 @@ def invoice_assistant(request):
         return Response({"detail": "No company configured."}, status=status.HTTP_404_NOT_FOUND)
 
     try:
-        reply = assistant.chat(company, message, request.data.get("history"))
+        result = assistant.chat(company, message, request.data.get("history"))
     except RuntimeError as exc:
         return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception:
@@ -74,7 +75,9 @@ def invoice_assistant(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
-    return Response({"reply": reply})
+    return Response(
+        {"reply": result["reply"], "published_batch_id": result["published_batch_id"]}
+    )
 
 
 @api_view(["GET"])
@@ -123,38 +126,9 @@ def invoice_batch_list(request):
         batches = _batch_queryset().order_by("-created_at")
         return Response(InvoiceBatchSerializer(batches, many=True).data)
 
-    invoice_ids = request.data.get("invoice_ids") or []
-    if not isinstance(invoice_ids, list) or len(invoice_ids) < 1:
-        return Response(
-            {"detail": "invoice_ids must be a list of at least 1 invoice id."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    invoices = list(
-        Invoice.objects.filter(
-            pk__in=invoice_ids, status=Invoice.Status.PENDING, batch__isnull=True
-        )
-    )
-    if len(invoices) != len(set(invoice_ids)):
-        return Response(
-            {
-                "detail": "One or more invoice_ids don't exist, aren't pending, "
-                "or are already part of another batch."
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    company_ids = {invoice.company_id for invoice in invoices}
-    if len(company_ids) != 1:
-        return Response(
-            {"detail": "All invoices in a batch must belong to the same company."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    batch = InvoiceBatch.objects.create(company_id=company_ids.pop())
-    Invoice.objects.filter(pk__in=invoice_ids).update(
-        batch=batch, status=Invoice.Status.IN_AUCTION
-    )
+    batch, error = publish_invoices(request.data.get("invoice_ids") or [])
+    if error:
+        return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(
         InvoiceBatchSerializer(_batch_queryset().get(pk=batch.pk)).data,

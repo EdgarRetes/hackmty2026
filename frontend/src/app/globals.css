@@ -26,3 +26,70 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+.assistant-markdown {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.assistant-markdown > :first-child {
+  margin-top: 0;
+}
+.assistant-markdown > :last-child {
+  margin-bottom: 0;
+}
+.assistant-markdown p {
+  margin: 0.4em 0;
+}
+.assistant-markdown strong {
+  font-weight: 700;
+}
+.assistant-markdown h1,
+.assistant-markdown h2,
+.assistant-markdown h3,
+.assistant-markdown h4 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  margin: 0.7em 0 0.35em;
+}
+.assistant-markdown ul,
+.assistant-markdown ol {
+  margin: 0.35em 0;
+  padding-left: 1.15em;
+}
+.assistant-markdown li {
+  margin: 0.15em 0;
+}
+.assistant-markdown li > ul,
+.assistant-markdown li > ol {
+  margin: 0.15em 0;
+}
+.assistant-markdown hr {
+  border: none;
+  border-top: 1px solid #d7deea;
+  margin: 0.6em 0;
+}
+.assistant-markdown a {
+  color: #0b1f44;
+  text-decoration: underline;
+}
+.assistant-markdown code {
+  background: #e5eaf3;
+  border-radius: 0.25em;
+  padding: 0.1em 0.35em;
+  font-size: 0.75rem;
+}
+.assistant-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.75rem;
+}
+.assistant-markdown th,
+.assistant-markdown td {
+  border: 1px solid #d7deea;
+  padding: 0.3em 0.5em;
+  text-align: left;
+}
+.assistant-markdown th {
+  background: #e5eaf3;
+  font-weight: 700;
+}
