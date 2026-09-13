@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from facturas.models import Invoice, InvoiceBatch
 from financiadoras.models import Lender
 
-from .matching_engine import rank_offers
+from .matching_engine import opportunity_summary, rank_offers
 from .models import Offer
 from .serializers import OfferSerializer
 
@@ -188,6 +188,253 @@ def batch_offers(request, batch_id):
         )
 
     return Response(offers)
+
+
+@api_view(["GET"])
+def marketplace_opportunities(request):
+    """
+    Every published, still-open publicación (InvoiceBatch — 1 or more
+    invoices) as a Financiadora-facing opportunity: aggregate amount,
+    risk engine + pricing agent output (risk bucket, estimated return),
+    sector, and whether any of its debtors has been financed before.
+    See API_CONTRACT.md.
+    """
+    batches = InvoiceBatch.objects.select_related("company").prefetch_related(
+        Prefetch(
+            "invoices", queryset=Invoice.objects.select_related("company", "debtor_client")
+        )
+    ).order_by("-created_at")
+
+    risk_rank = {"low": 0, "medium": 1, "high": 2}
+    opportunities = []
+
+    for batch in batches:
+        invoices = list(batch.invoices.all())
+        open_invoices = [
+            inv for inv in invoices
+            if inv.status in (Invoice.Status.PENDING, Invoice.Status.IN_AUCTION)
+        ]
+        if not open_invoices:
+            continue
+
+        amount = sum((Decimal(str(inv.amount)) for inv in invoices), Decimal("0"))
+        summaries = [opportunity_summary(inv) for inv in invoices]
+        risk = max((s["risk"] for s in summaries), key=lambda r: risk_rank[r])
+        avg_return_rate = (
+            sum(Decimal(s["estimated_return_rate"]) for s in summaries) / len(summaries)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total_return = sum((Decimal(s["estimated_return"]) for s in summaries), Decimal("0"))
+        sectors = {s["sector"] for s in summaries if s["sector"]}
+        sector = next(iter(sectors)) if len(sectors) == 1 else None
+
+        debtor_ids = {inv.debtor_client_id for inv in invoices}
+        debtor_names = sorted({inv.debtor_client.name for inv in invoices})
+        previously_financed = Invoice.objects.filter(
+            debtor_client_id__in=debtor_ids,
+            status__in=[Invoice.Status.FUNDED, Invoice.Status.PAID],
+        ).exclude(pk__in=[inv.pk for inv in invoices]).exists()
+
+        earliest_due = min(inv.due_date for inv in invoices)
+        today = timezone.now().date()
+
+        opportunities.append(
+            {
+                "id": batch.id,
+                "folio": (
+                    f"FAC-2026-{invoices[0].id:04d}"
+                    if len(invoices) == 1
+                    else f"PUB-{batch.id:04d}"
+                ),
+                "invoice_count": len(invoices),
+                "company": {
+                    "id": batch.company_id,
+                    "legal_name": batch.company.legal_name,
+                    "rfc": batch.company.rfc,
+                },
+                "debtor": debtor_names[0] if len(debtor_names) == 1 else f"{len(debtor_names)} deudores",
+                "amount": str(amount),
+                "issue_date": min(inv.issue_date for inv in invoices).isoformat(),
+                "due_date": earliest_due.isoformat(),
+                "days_until_due": (earliest_due - today).days,
+                "sector": sector,
+                "risk": risk,
+                "estimated_return_rate": str(avg_return_rate),
+                "estimated_return": str(total_return),
+                "previously_financed": previously_financed,
+            }
+        )
+
+    lender = Lender.objects.order_by("id").first()
+    available_capital = str(lender.available_capital) if lender else "0"
+
+    return Response({"opportunities": opportunities, "available_capital": available_capital})
+
+
+@api_view(["POST"])
+def accept_batch_offer(request, batch_id):
+    """
+    A financiadora accepting a publicación: persists a real Offer for
+    the chosen lender on every invoice in the batch (reusing the same
+    per-invoice pricing already computed for the single-invoice flow),
+    marks them all accepted, and funds every invoice in the batch at
+    once. Body: {"lender_id": <id>}.
+    """
+    try:
+        batch = InvoiceBatch.objects.prefetch_related(
+            Prefetch(
+                "invoices",
+                queryset=Invoice.objects.select_related("company", "debtor_client"),
+            )
+        ).get(pk=batch_id)
+    except InvoiceBatch.DoesNotExist:
+        return Response({"detail": "Publication not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    invoices = list(batch.invoices.all())
+    open_invoices = [
+        inv for inv in invoices
+        if inv.status in (Invoice.Status.PENDING, Invoice.Status.IN_AUCTION)
+    ]
+    if not open_invoices:
+        return Response(
+            {"detail": "This publication has no open invoices left to fund."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    lender_id = request.data.get("lender_id")
+    try:
+        lender = Lender.objects.get(pk=lender_id)
+    except (Lender.DoesNotExist, TypeError, ValueError):
+        return Response({"detail": "Unknown lender_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+    now = timezone.now()
+    accepted_offers = []
+
+    with transaction.atomic():
+        for invoice in open_invoices:
+            quote = next(
+                (q for q in rank_offers(invoice) if q["lender"]["id"] == lender.pk), None
+            )
+            if quote is None:
+                continue
+            amount = Decimal(str(invoice.amount))
+            rate = Decimal(str(quote["rate"]))
+            financing_cost = (amount * rate / Decimal("100")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+            offer = Offer.objects.filter(invoice=invoice, lender=lender).order_by("pk").first()
+            if offer is None:
+                offer = Offer(invoice=invoice, lender=lender)
+            offer.advance_percentage = Decimal(str(quote["advance_percentage"]))
+            offer.rate = rate
+            offer.net_amount = Decimal(str(quote["net_amount"]))
+            offer.financing_cost = financing_cost
+            offer.funding_time = FUNDING_TIMES[lender.risk_profile]
+            offer.category = "best"
+            offer.rank = 1
+            offer.expires_at = now + timedelta(hours=24)
+            offer.is_accepted = True
+            offer.accepted_at = now
+            offer.save()
+            accepted_offers.append(offer)
+
+            invoice.status = Invoice.Status.FUNDED
+            invoice.save(update_fields=["status"])
+
+    total_net_amount = sum((offer.net_amount for offer in accepted_offers), Decimal("0"))
+
+    return Response(
+        {
+            "batch_id": batch.id,
+            "lender_id": lender.pk,
+            "status": "accepted",
+            "invoices_funded": len(accepted_offers),
+            "total_net_amount": str(total_net_amount),
+            "transaction_id": f"TXN-{uuid4().hex[:12].upper()}",
+            "accepted_at": now.isoformat(),
+        }
+    )
+
+
+@api_view(["GET"])
+def financier_portfolio(request):
+    """
+    The demo Financiadora's own portfolio, derived entirely from real
+    persisted Offers: capital on hand (Lender.available_capital), capital
+    currently deployed, realized return, active operations, a risk
+    breakdown, a trailing 6-month capital history, and recent operations.
+    See API_CONTRACT.md.
+    """
+    lender = Lender.objects.order_by("id").first()
+    if lender is None:
+        return Response({"detail": "No lender configured."}, status=status.HTTP_404_NOT_FOUND)
+
+    accepted = list(
+        Offer.objects.filter(lender=lender, is_accepted=True)
+        .select_related("invoice", "invoice__debtor_client")
+        .order_by("-accepted_at")
+    )
+
+    financed_capital = Decimal("0")
+    generated_return = Decimal("0")
+    active_operations = 0
+    risk_totals = {"low": Decimal("0"), "medium": Decimal("0"), "high": Decimal("0")}
+    recent_operations = []
+
+    for offer in accepted:
+        invoice = offer.invoice
+        if invoice.status == Invoice.Status.FUNDED:
+            financed_capital += offer.net_amount
+            active_operations += 1
+        elif invoice.status == Invoice.Status.PAID:
+            generated_return += offer.financing_cost
+
+        risk = opportunity_summary(invoice)["risk"]
+        risk_totals[risk] += offer.net_amount
+
+        recent_operations.append(
+            {
+                "invoice_folio": f"FAC-2026-{invoice.id:04d}",
+                "debtor": invoice.debtor_client.name,
+                "capital": str(offer.net_amount),
+                "term_days": (invoice.due_date - invoice.issue_date).days,
+                "status": invoice.status,
+                "return": str(offer.financing_cost),
+            }
+        )
+
+    today = timezone.now().date()
+    months = []
+    cursor = today.replace(day=1)
+    for _ in range(6):
+        months.append(cursor)
+        cursor = (cursor - timedelta(days=1)).replace(day=1)
+    months.reverse()
+
+    capital_history = []
+    for month_start in months:
+        next_month = (month_start + timedelta(days=32)).replace(day=1)
+        month_total = sum(
+            (
+                offer.net_amount
+                for offer in accepted
+                if offer.accepted_at and month_start <= offer.accepted_at.date() < next_month
+            ),
+            Decimal("0"),
+        )
+        capital_history.append({"month": month_start.strftime("%Y-%m"), "amount": str(month_total)})
+
+    return Response(
+        {
+            "available_capital": str(lender.available_capital),
+            "financed_capital": str(financed_capital),
+            "generated_return": str(generated_return),
+            "active_operations_count": active_operations,
+            "portfolio_by_risk": {key: str(value) for key, value in risk_totals.items()},
+            "capital_history": capital_history,
+            "recent_operations": recent_operations[:10],
+        }
+    )
 
 
 @api_view(["POST"])

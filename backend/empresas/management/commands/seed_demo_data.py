@@ -35,14 +35,27 @@ DEMO_COMPANY = {
     "is_verified": True,
 }
 
-# (name, archetype) — archetype drives the payment-history distribution below.
+# (name, archetype) — archetype drives the payment-history distribution
+# below. More clients per archetype (not just one) both gives the risk
+# engine a bigger, more convincing training set and gives the marketplace
+# enough volume to look like a real marketplace instead of a demo stub.
 DEBTOR_CLIENTS = [
     ("Comercializadora del Norte", "reliable"),
     ("Ferretería La Unión", "reliable"),
+    ("Distribuidora Regia", "reliable"),
+    ("Aceros del Norte", "reliable"),
+    ("TecnoSoluciones del Norte", "reliable"),
     ("Grupo Constructor Peninsular", "irregular"),
     ("Materiales Industriales MTY", "irregular"),
+    ("Transportes Fronterizos", "irregular"),
+    ("Insumos Médicos MTY", "irregular"),
+    ("Papelería Escolar MTY", "irregular"),
     ("Farmacias San Rafael", "delinquent"),
+    ("Constructora Sierra Madre", "delinquent"),
+    ("Textiles Cumbres", "delinquent"),
     ("Autotransportes del Golfo", "new"),
+    ("AgroIndustrias Nuevo León", "new"),
+    ("Hotelera Regiomontana", "new"),
 ]
 
 INVOICE_TERMS_DAYS = (30, 45, 60)
@@ -152,6 +165,9 @@ class Command(BaseCommand):
             stats = self._seed_payment_history(clients, company, nessie if with_nessie else None)
             invoices = self._seed_invoices(company, clients)
             financed = self._seed_financings(invoices)
+            financed_ids = {invoice.pk for invoice in financed}
+            remaining = [invoice for invoice in invoices if invoice.pk not in financed_ids]
+            published_batches = self._seed_publications(company, remaining)
 
         pending_count = len(invoices) - len(financed)
         total_payments = sum(data["count"] for data in stats.values())
@@ -159,7 +175,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"\nSeeded 1 company, {len(lenders)} lenders, 2 role profiles, "
                 f"{len(clients)} debtor clients, {total_payments} payment "
-                f"history records, {pending_count} pending invoices, "
+                f"history records, {pending_count} pending invoices "
+                f"({published_batches} publicaciones), "
                 f"{len(financed)} already-financed invoices."
                 + (" (with real Nessie records)" if with_nessie else "")
                 + "\n"
@@ -182,7 +199,11 @@ class Command(BaseCommand):
         return [
             Lender.objects.update_or_create(
                 name=identity["name"],
-                defaults={"risk_profile": identity["risk_profile"], "is_verified": True},
+                defaults={
+                    "risk_profile": identity["risk_profile"],
+                    "is_verified": True,
+                    "available_capital": _random_amount(low=2_000_000, high=6_000_000),
+                },
             )[0]
             for identity in LENDER_IDENTITIES.values()
         ]
@@ -316,7 +337,7 @@ class Command(BaseCommand):
         return stats
 
     def _seed_invoices(self, company, clients):
-        count = random.randint(8, 15)
+        count = random.randint(45, 65)
         today = timezone.now().date()
 
         invoices = []
@@ -341,21 +362,25 @@ class Command(BaseCommand):
 
     def _seed_financings(self, invoices):
         """
-        Marks a few freshly-seeded invoices as already financed: runs the
-        real pricing pipeline, persists all 3 offers exactly like
-        POST /api/invoices/{id}/offers/ does, then accepts the best one.
-        Without this, the Financiadora role's "Financiamientos" page
-        (frontend/src/lib/financing.ts) — which reads real accepted
-        Offers, not mock data — has nothing to show until a real user
-        clicks through the accept flow at least once.
+        Marks a chunk of freshly-seeded invoices as already financed: runs
+        the real pricing pipeline, persists all 3 offers exactly like
+        POST /api/invoices/{id}/offers/ does, then accepts the best one,
+        with accepted_at spread over the trailing ~5 months so the
+        Financiadora dashboard's capital-history chart has real
+        multi-month data instead of everything landing in one bucket.
+        Without this, the Financiadora role's "Financiamientos" page and
+        portfolio dashboard — which read real accepted Offers, not mock
+        data — have nothing to show until a real user clicks through the
+        accept flow at least once.
         """
-        if len(invoices) < 3:
+        sample_size = min(len(invoices), random.randint(12, 18))
+        if sample_size < 3:
             return []
 
         today = timezone.now()
         financed = []
 
-        for index, invoice in enumerate(random.sample(invoices, 3)):
+        for invoice in random.sample(invoices, sample_size):
             ranked = rank_offers(invoice)
             rates = [Decimal(str(quote["rate"])) for quote in ranked]
             advances = [Decimal(str(quote["advance_percentage"])) for quote in ranked]
@@ -404,16 +429,50 @@ class Command(BaseCommand):
                     best_offer = offer
 
             best_offer.is_accepted = True
-            best_offer.accepted_at = today - timedelta(days=random.randint(3, 30))
+            # Spread over ~5 months so the capital-history chart has real
+            # multi-month buckets instead of everything landing this week.
+            best_offer.accepted_at = today - timedelta(days=random.randint(3, 150))
             best_offer.save(update_fields=["is_accepted", "accepted_at"])
 
-            # First one "paid" (fully settled), the rest "funded" (still
-            # active) — exercises both status buckets on the Financing page.
-            invoice.status = Invoice.Status.PAID if index == 0 else Invoice.Status.FUNDED
+            # Mix of "paid" (fully settled — realized return) and "funded"
+            # (still active) — exercises both status buckets on the
+            # Financing page and the portfolio's active-vs-completed split.
+            invoice.status = (
+                Invoice.Status.PAID if random.random() < 0.4 else Invoice.Status.FUNDED
+            )
             invoice.save(update_fields=["status"])
             financed.append(invoice)
 
         return financed
+
+    def _seed_publications(self, company, invoices):
+        """
+        Publishes most of the remaining (not already financed) pending
+        invoices as real publicaciones (InvoiceBatch — 1 to 4 invoices
+        each), so the Financiadora Marketplace has real opportunities out
+        of the box. A minority are deliberately left unpublished so the
+        empresa's own Facturas page still shows a genuine "No aplica"
+        bucket alongside "Publicadas".
+        """
+        pool = list(invoices)
+        random.shuffle(pool)
+        to_publish = pool[: int(len(pool) * 0.8)]
+
+        published_batches = 0
+        index = 0
+        while index < len(to_publish):
+            size = random.choice([1, 1, 2, 2, 3, 4])
+            chunk = to_publish[index : index + size]
+            index += size
+            if not chunk:
+                continue
+            batch = InvoiceBatch.objects.create(company=company)
+            Invoice.objects.filter(pk__in=[invoice.pk for invoice in chunk]).update(
+                batch=batch, status=Invoice.Status.IN_AUCTION
+            )
+            published_batches += 1
+
+        return published_batches
 
     def _print_nessie_identities(self, company, lenders, with_nessie):
         if not with_nessie:

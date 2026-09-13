@@ -60,3 +60,38 @@ def rank_offers(invoice):
     for quote in quotes:
         del quote["_sort_key"]
     return quotes
+
+
+def _risk_bucket(p50_days_late):
+    """Coarse low/medium/high bucket for marketplace/portfolio display."""
+    if p50_days_late <= 30:
+        return "low"
+    if p50_days_late <= 55:
+        return "medium"
+    return "high"
+
+
+def opportunity_summary(invoice):
+    """
+    A lightweight summary for marketplace-list and portfolio views: the
+    risk bucket the invoice's DebtorClient falls into, plus an estimated
+    return (rate and absolute amount) averaged across all 3 pricing
+    agents — a rough "what any lender could expect" figure, not tied to
+    one specific agent's strategy.
+    """
+    risk = predict_risk(invoice)
+    quotes = rank_offers(invoice)
+    amount = Decimal(str(invoice.amount))
+
+    avg_rate = sum(Decimal(quote["rate"]) for quote in quotes) / len(quotes)
+    avg_rate = avg_rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    estimated_return = (amount * avg_rate / Decimal("100")).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    return {
+        "risk": _risk_bucket(risk["p50"]),
+        "estimated_return_rate": str(avg_rate),
+        "estimated_return": str(estimated_return),
+        "sector": sector_for_client(invoice.debtor_client),
+    }

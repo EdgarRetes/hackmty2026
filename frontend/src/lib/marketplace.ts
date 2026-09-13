@@ -2,21 +2,32 @@ import { apiRequest } from "./api";
 
 export type MarketplaceRisk = "low" | "medium" | "high";
 
-interface ApiInvoice {
+interface ApiOpportunity {
   id: number;
   folio: string;
+  invoice_count: number;
   company: { id: number; legal_name: string; rfc: string };
-  debtor_client: { id: number; name: string; archetype: string };
+  debtor: string;
   amount: string;
   issue_date: string;
   due_date: string;
-  status: "pending" | "in_auction" | "funded" | "paid" | "overdue";
   days_until_due: number;
+  sector: string | null;
+  risk: MarketplaceRisk;
+  estimated_return_rate: string;
+  estimated_return: string;
+  previously_financed: boolean;
+}
+
+interface ApiMarketplaceResponse {
+  opportunities: ApiOpportunity[];
+  available_capital: string;
 }
 
 export interface MarketplaceOpportunity {
   id: number;
   folio: string;
+  invoiceCount: number;
   applicant: string;
   debtor: string;
   debtorInitials: string;
@@ -39,42 +50,53 @@ export interface MarketplaceData {
   averageReturnRate: number | null;
 }
 
+/**
+ * Each opportunity is a real "publicación" — one or more invoices
+ * published together — not a raw invoice. A publication of size 1 is
+ * just the single-invoice case; the frontend shape doesn't need to
+ * distinguish them.
+ */
 export async function getMarketplaceData(): Promise<MarketplaceData> {
-  const invoices = await apiRequest<ApiInvoice[]>("/api/invoices/");
-  const opportunities = invoices
-    .filter((invoice) => (invoice.status === "pending" || invoice.status === "in_auction") && invoice.days_until_due > 0)
-    .map(normalizeOpportunity);
+  const response = await apiRequest<ApiMarketplaceResponse>("/api/marketplace/");
+  const opportunities = response.opportunities.map(normalizeOpportunity);
+
+  const knownDebtorsCount = opportunities.filter((item) => item.previouslyFinanced).length;
+  const returnRates = opportunities.map((item) => item.estimatedReturnRate).filter((rate): rate is number => rate !== null);
+  const averageReturnRate = returnRates.length
+    ? Number((returnRates.reduce((sum, rate) => sum + rate, 0) / returnRates.length).toFixed(2))
+    : null;
 
   return {
     opportunities,
-    availableCapitalCents: null,
-    knownDebtorsCount: null,
-    averageReturnRate: null,
+    availableCapitalCents: decimalToCents(response.available_capital),
+    knownDebtorsCount,
+    averageReturnRate,
   };
 }
 
-function normalizeOpportunity(invoice: ApiInvoice): MarketplaceOpportunity {
-  const amountCents = decimalToCents(invoice.amount);
+function normalizeOpportunity(opportunity: ApiOpportunity): MarketplaceOpportunity {
+  const amountCents = decimalToCents(opportunity.amount);
   return {
-    id: invoice.id,
-    folio: invoice.folio,
-    applicant: invoice.company.legal_name,
-    debtor: invoice.debtor_client.name,
-    debtorInitials: initials(invoice.debtor_client.name),
+    id: opportunity.id,
+    folio: opportunity.folio,
+    invoiceCount: opportunity.invoice_count,
+    applicant: opportunity.company.legal_name,
+    debtor: opportunity.debtor,
+    debtorInitials: initials(opportunity.debtor),
     amountCents,
     formattedAmount: formatCents(amountCents),
-    issueDate: invoice.issue_date,
-    formattedIssueDate: formatDate(invoice.issue_date),
-    daysUntilDue: invoice.days_until_due,
-    risk: null,
-    estimatedReturnRate: null,
-    estimatedReturnCents: null,
-    previouslyFinanced: null,
-    sector: null,
+    issueDate: opportunity.issue_date,
+    formattedIssueDate: formatDate(opportunity.issue_date),
+    daysUntilDue: opportunity.days_until_due,
+    risk: opportunity.risk,
+    estimatedReturnRate: Number(opportunity.estimated_return_rate),
+    estimatedReturnCents: decimalToCents(opportunity.estimated_return),
+    previouslyFinanced: opportunity.previously_financed,
+    sector: opportunity.sector,
   };
 }
 
-function decimalToCents(value: string): number {
+export function decimalToCents(value: string): number {
   const [whole = "0", fraction = ""] = value.split(".");
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0").slice(0, 2));
 }

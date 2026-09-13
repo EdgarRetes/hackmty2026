@@ -83,6 +83,7 @@ function mapOffers(apiOffers: ApiOffer[]): Offer[] {
     const classification = classifyOffer(offer.category);
     return {
       id: String(offer.id),
+      lenderId: offer.lender.id,
       financier: offer.lender.name,
       mark: initials(offer.lender.name),
       category: classification.category,
